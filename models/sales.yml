@@ -1,0 +1,108 @@
+name: product_sales
+dialect: sqlite
+
+# Logical tables. Mapped from the Snowflake semantic view sv_product_sales:
+#   sales     <- VW_NCR_OLO_TRANSACTION_LEVEL_DETAIL
+#   storeinfo <- VW_FRANCONNECT_PROFILES
+#   budget    <- VW_SWS_BUDGET
+tables:
+  - name: sales
+    table: sales
+    grain: "one row per product line per transaction"
+    description: >
+      Combined in-store (NCR/POS) and online (OLO) product-level transaction
+      detail. One order has many rows. Use item_net_sales for line-additive
+      revenue and COUNT(DISTINCT transaction_id) for distinct order counts.
+  - name: storeinfo
+    table: storeinfo
+    primary_key: fc_number
+    description: >
+      Store/franchise master dimension. One row per store. Geography, ownership
+      type, and lifecycle status. Join key to all other tables: fc_number.
+  - name: budget
+    table: budget
+    grain: "one row per store per calendar day"
+    description: >
+      Planned daily net sales targets. One row per store per day. Aggregate
+      separately from sales and join on fc_number + date for budget vs actual.
+
+relationships:
+  - { from: sales.fc_number, to: storeinfo.fc_number }
+  - { from: budget.fc_number, to: storeinfo.fc_number }
+
+dimensions:
+  # ---- sales ----
+  - { table: sales, name: product_name, column: product_name,
+      synonyms: [item, product, sku name],
+      sample_values: ["Dozen Glazed", "Kolache", "Coffee - Regular"] }
+  - { table: sales, name: category_name, column: category_name,
+      synonyms: [category, product category, item category],
+      sample_values: ["Donuts", "Beverages", "Kolaches"] }
+  - { table: sales, name: purchase_location, column: purchase_location,
+      synonyms: [channel, sales channel, in-store vs online, where purchased],
+      sample_values: ["At Shop", "Online"] }
+  - { table: sales, name: date, column: date, type: date,
+      synonyms: [business date, transaction date, day] }
+  - { table: sales, name: iso_week, column: iso_week, type: number,
+      synonyms: [week, week number] }
+  - { table: sales, name: iso_year, column: iso_year, type: number,
+      synonyms: [year] }
+  - { table: sales, name: fc_number, column: fc_number,
+      synonyms: [store, location, fc, store code, franchise code] }
+  # ---- storeinfo ----
+  - { table: storeinfo, name: market, column: market,
+      synonyms: [market, area, territory],
+      sample_values: ["Houston", "Dallas", "San Antonio"] }
+  - { table: storeinfo, name: region, column: region,
+      synonyms: [region, division] }
+  - { table: storeinfo, name: state, column: state, synonyms: [state] }
+  - { table: storeinfo, name: corporate_franchise, column: corporate_franchise,
+      synonyms: [ownership type, corp vs franchise, corporate vs franchise],
+      sample_values: ["Corporate", "Franchise"] }
+  - { table: storeinfo, name: lifecycle_stage, column: lifecycle_stage,
+      synonyms: [store status, lifecycle, operational status],
+      sample_values: ["Open", "Temporarily Closed", "Terminated"] }
+
+facts:
+  - { table: sales, name: item_net_sales, column: item_net_sales }
+  - { table: sales, name: quantity, column: quantity }
+  - { table: budget, name: budget_net_sales, column: budget_net_sales }
+  # fc_number is the budget join key; declared so the relationship validates.
+  - { table: budget, name: budget_fc_number, column: fc_number }
+
+metrics:
+  - name: total_net_sales
+    table: sales
+    sql: "SUM(CASE WHEN transaction_deleted = 0 THEN item_net_sales ELSE 0 END)"
+    synonyms: [sales, net sales, revenue, total sales, product sales]
+  - name: units_sold
+    table: sales
+    sql: "SUM(CASE WHEN transaction_deleted = 0 THEN quantity ELSE 0 END)"
+    synonyms: [units, quantity sold, items sold, volume]
+  - name: traffic
+    table: sales
+    sql: >
+      COUNT(DISTINCT CASE WHEN transaction_deleted = 0 AND transaction_return = 0
+      THEN transaction_id END)
+    synonyms: [orders, order count, checks, transactions, traffic]
+  - name: total_budget
+    table: budget
+    sql: "SUM(budget_net_sales)"
+    synonyms: [budget, budgeted sales, sales target, budget target, plan]
+
+examples:
+  - question: "How is Dozen Glazed performing week over week?"
+    ir:
+      metrics: [total_net_sales, units_sold]
+      dimensions: [product_name, iso_year, iso_week]
+      filters: [{ field: product_name, op: "=", value: "Dozen Glazed" }]
+      order_by: [{ field: iso_week, dir: asc }]
+  - question: "Net sales by market last 30 days"
+    ir:
+      metrics: [total_net_sales]
+      dimensions: [market]
+      time: { field: date, last_n_days: 30 }
+  - question: "Budget vs actual by store"
+    ir:
+      metrics: [total_net_sales, total_budget]
+      dimensions: [fc_number]

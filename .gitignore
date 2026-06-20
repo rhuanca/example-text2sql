@@ -1,0 +1,12 @@
+# Local tooling
+.claude/
+
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+
+# Build artifacts
+demo.db
+*.sqlite
+build/
