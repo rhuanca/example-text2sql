@@ -35,7 +35,7 @@ text2sql/
     engine.py              # orchestration + bounded repair loop
   db/seed.py               # deterministic SQLite sample data
   config.py                # loads dotenv: ANTHROPIC_API_KEY / ANTHROPIC_MODEL
-models/sales.yml           # sales / storeinfo / budget semantic model
+models/sales.yml           # fact_sales / dim_store / fact_budget semantic model
 tests/                     # unit + e2e (+ gated live LLM test)
 specs/001-text-to-sql-engine/   # spec, plan, tasks
 ```
@@ -85,14 +85,14 @@ from text2sql.db.seed import build_database
 
 model = load_model("models/sales.yml")
 db = build_database("demo.db")
-rules = [("dozen glazed", {
+rules = [("cappuccino", {
     "metrics": ["total_net_sales", "units_sold"],
-    "dimensions": ["iso_year", "iso_week"],
-    "filters": [{"field": "product_name", "op": "=", "value": "Dozen Glazed"}],
+    "dimensions": ["product_name", "iso_year", "iso_week"],
+    "filters": [{"field": "product_name", "op": "=", "value": "Cappuccino"}],
     "order_by": [{"field": "iso_week", "dir": "asc"}],
 })]
 engine = Engine(model, MockPlanner(rules), SqliteDialect(), SqliteExecutor(db))
-r = engine.ask("How is Dozen Glazed performing week over week?")
+r = engine.ask("How is Cappuccino performing week over week?")
 print(r.sql); print(r.rows)
 ```
 
@@ -105,23 +105,95 @@ r = engine.ask("Budget vs actual by store")
 print(r.ir.to_dict()); print(r.sql); print(r.rows)
 ```
 
+## Chat UI (with plots)
+
+A Streamlit chat app sits on top of the engine: type a question and get a
+written answer, an auto-selected chart, the data table, and the generated SQL/IR.
+
+```bash
+uv run streamlit run text2sql/chat/app.py
+```
+
+For each answer it shows, in order:
+1. an **LLM prose summary** of the result,
+2. a chart picked **deterministically from the query shape** — a time dimension
+   (e.g. ISO week) → line, a categorical dimension (e.g. market) → bar, a scalar
+   metric → a single number, otherwise just the table,
+3. the **data table**, and
+4. an expander revealing the **SQL and the Semantic Query (IR)**.
+
+The summary is additive — if the LLM call fails the chart and table still show.
+With no API key set, the app falls back to the deterministic mock planner so the
+example questions still work. Try:
+
+- *How is Cappuccino performing week over week?* → line chart over ISO week
+- *What were total net sales by market?* → bar chart
+- *Budget vs actual by store* → table (fan-out-safe)
+
+## Evaluation harness
+
+The planner is the only fuzzy step (NL → IR). The eval harness turns its quality
+into a number and a regression gate. A committed dataset pairs questions with the
+IR a correct planner should produce; a runner scores a planner against it.
+
+```bash
+uv run python -m text2sql.eval.run                   # mock planner — harness self-check (100%)
+uv run python -m text2sql.eval.run --planner anthropic   # measure the real LLM (needs key)
+uv run python -m text2sql.eval.run --cases eval/cases.yml
+```
+
+Each case is scored two ways:
+
+1. **Execution accuracy** (pass/fail) — both the expected and predicted IR are
+   compiled and run against the seeded SQLite, and the result sets are compared.
+   This forgives semantically-equivalent IRs that differ only in text. Rows match
+   as a multiset (numeric `5` == `5.0`), and order is enforced only when the
+   expected IR specifies an `order_by`.
+2. **IR component scores** (diagnostic) — precision/recall over metrics,
+   dimensions, and filters (compared as sets), plus an `exact` flag that also
+   accounts for ordering, the time window, and the limit. These pinpoint *which*
+   part of a wrong query the planner got wrong.
+
+`--min-accuracy 0.8` makes the CLI exit non-zero when execution accuracy drops
+below the floor, so it doubles as a regression gate. GitHub Actions
+(`.github/workflows/ci.yml`) runs the unit tests and the mock-planner eval on
+every push/PR, and the real-planner eval when an `ANTHROPIC_API_KEY` secret is
+configured.
+
+The dataset lives in `eval/cases.yml`; add a case by writing a question and its
+expected IR (same shape as the model's `examples`). The scorer and runner are
+pure and covered by `tests/test_eval_scorer.py` / `tests/test_eval_runner.py`;
+the mock-planner run keeps the suite green offline.
+
+```
+text2sql/eval/
+  dataset.py   # EvalCase + load_cases
+  scorer.py    # pure IR comparison + result-set comparison
+  runner.py    # run_suite -> Report (per-case + summary)
+  report.py    # text report
+  run.py       # CLI
+eval/cases.yml # the committed dataset
+```
+
 ## The semantic model (`models/sales.yml`)
 
 Three tables, mapped from an existing Snowflake semantic view:
 
 | logical table | source view | key fields |
 |---|---|---|
-| `sales` | `VW_NCR_OLO_TRANSACTION_LEVEL_DETAIL` | metrics `total_net_sales`, `units_sold`, `traffic` |
-| `storeinfo` | `VW_FRANCONNECT_PROFILES` | dims `market`, `region`, `corporate_franchise`, … |
-| `budget` | `VW_SWS_BUDGET` | metric `total_budget` |
+| `fact_sales` | `VW_NCR_OLO_TRANSACTION_LEVEL_DETAIL` | metrics `total_net_sales`, `units_sold`, `traffic` |
+| `dim_store` | `VW_FRANCONNECT_PROFILES` | dims `market`, `region`, `corporate_franchise`, … |
+| `fact_budget` | `VW_SWS_BUDGET` | metric `total_budget` |
 
-Relationships: `sales.fc_number → storeinfo.fc_number`,
-`budget.fc_number → storeinfo.fc_number`.
+Relationships: `fact_sales.store_id → dim_store.store_id`,
+`fact_budget.store_id → dim_store.store_id`.
 
 Add a metric/dimension by editing the YAML — no engine change needed. Add a
 database by adding a `Dialect`.
 
 ## Status
 
-- Engine (T0–T8), Postgres seam (T9), docs (T10): **done**.
-- Postgres *execution* and a chat UI with plots are future specs.
+- Spec 001 — engine (T0–T8), Postgres seam (T9), docs (T10): **done**.
+- Spec 002 — chat UI with plots (U1–U5): **done**.
+- Spec 003 — evaluation harness (E1–E7): **done**.
+- Postgres *execution* against a live database is a future spec.

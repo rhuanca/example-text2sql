@@ -10,3 +10,7 @@ __pycache__/
 demo.db
 *.sqlite
 build/
+
+# Generated files
+*.pptx
+build_deck.py

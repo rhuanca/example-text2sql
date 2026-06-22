@@ -27,7 +27,7 @@ class TestPostgresSeam(unittest.TestCase):
         sql, params = compile(ir, self.model, PostgresDialect())
         self.assertIn("%s", sql)
         self.assertNotIn("?", sql)
-        self.assertIn('"storeinfo"."market" = %s', sql)
+        self.assertIn('"dim_store"."market" = %s', sql)
         self.assertEqual(params, ["Houston"])
 
     def test_relative_date_uses_interval(self):
@@ -45,15 +45,15 @@ class TestPostgresSeam(unittest.TestCase):
         ir = SemanticQuery.from_dict(
             {
                 "metrics": ["total_net_sales", "total_budget"],
-                "dimensions": ["fc_number"],
+                "dimensions": ["store_id"],
             }
         )
         pg, _ = compile(ir, self.model, PostgresDialect())
         lite, _ = compile(ir, self.model, SqliteDialect())
         # structure is identical (both produce the fan-out-safe CTE join)
-        self.assertIn("agg_sales", pg)
-        self.assertIn("agg_budget", pg)
-        self.assertIn("agg_sales", lite)
+        self.assertIn("agg_fact_sales", pg)
+        self.assertIn("agg_fact_budget", pg)
+        self.assertIn("agg_fact_sales", lite)
         self.assertEqual(pg, lite)  # no dialect-specific text in this query
 
 

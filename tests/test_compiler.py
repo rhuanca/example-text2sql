@@ -26,7 +26,7 @@ class TestSingleTable(CompilerCase):
         sql, _ = self.c(
             {"metrics": ["total_net_sales"], "dimensions": ["product_name"]}
         )
-        self.assertIn('GROUP BY "sales"."product_name"', sql)
+        self.assertIn('GROUP BY "fact_sales"."product_name"', sql)
         self.assertIn('AS "total_net_sales"', sql)
 
     def test_filter_eq_is_parameterized(self):
@@ -35,12 +35,12 @@ class TestSingleTable(CompilerCase):
                 "metrics": ["total_net_sales"],
                 "dimensions": [],
                 "filters": [
-                    {"field": "product_name", "op": "=", "value": "Dozen Glazed"}
+                    {"field": "product_name", "op": "=", "value": "Cappuccino"}
                 ],
             }
         )
-        self.assertIn('"sales"."product_name" = ?', sql)
-        self.assertEqual(params, ["Dozen Glazed"])
+        self.assertIn('"fact_sales"."product_name" = ?', sql)
+        self.assertEqual(params, ["Cappuccino"])
 
     def test_filter_in(self):
         sql, params = self.c(
@@ -54,8 +54,8 @@ class TestSingleTable(CompilerCase):
         )
         self.assertIn("IN (?, ?)", sql)
         self.assertEqual(params, ["Houston", "Dallas"])
-        # filter on a storeinfo dim forces the join
-        self.assertIn("JOIN \"storeinfo\"", sql)
+        # filter on a dim_store dim forces the join
+        self.assertIn("JOIN \"dim_store\"", sql)
 
     def test_filter_like(self):
         sql, params = self.c(
@@ -88,7 +88,7 @@ class TestSingleTable(CompilerCase):
             }
         )
         self.assertIn("date('now', '-42 days')", sql)
-        self.assertIn('"sales"."date" >=', sql)
+        self.assertIn('"fact_sales"."date" >=', sql)
 
     def test_order_and_limit(self):
         sql, _ = self.c(
@@ -110,27 +110,27 @@ class TestSingleTable(CompilerCase):
 class TestJoinsAndFanout(CompilerCase):
     def test_cross_table_join_via_relationship(self):
         sql, _ = self.c({"metrics": ["total_net_sales"], "dimensions": ["market"]})
-        self.assertIn('FROM "sales"', sql)
+        self.assertIn('FROM "fact_sales"', sql)
         self.assertIn(
-            'JOIN "storeinfo" ON "sales"."fc_number" = "storeinfo"."fc_number"', sql
+            'JOIN "dim_store" ON "fact_sales"."store_id" = "dim_store"."store_id"', sql
         )
-        self.assertIn('GROUP BY "storeinfo"."market"', sql)
+        self.assertIn('GROUP BY "dim_store"."market"', sql)
 
     def test_budget_vs_actual_is_aggregate_then_join(self):
         sql, _ = self.c(
             {
                 "metrics": ["total_net_sales", "total_budget"],
-                "dimensions": ["fc_number"],
+                "dimensions": ["store_id"],
             }
         )
         # two aggregated CTEs joined on the key
         self.assertIn("WITH", sql)
-        self.assertIn("agg_sales", sql)
-        self.assertIn("agg_budget", sql)
+        self.assertIn("agg_fact_sales", sql)
+        self.assertIn("agg_fact_budget", sql)
         self.assertIn('JOIN agg_', sql)
         # fan-out guard: the raw physical tables are never joined to each other
-        self.assertNotIn('JOIN "budget"', sql)
-        self.assertNotIn('JOIN "sales"', sql)
+        self.assertNotIn('JOIN "fact_budget"', sql)
+        self.assertNotIn('JOIN "fact_sales"', sql)
         # both metrics surface
         self.assertIn('AS "total_net_sales"', sql)
         self.assertIn('AS "total_budget"', sql)

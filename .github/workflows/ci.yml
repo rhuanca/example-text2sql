@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Tests + eval
+    runs-on: ubuntu-latest
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run unit tests
+        run: uv run python -m unittest discover -s tests
+
+      - name: Eval — mock planner (deterministic self-check)
+        run: uv run python -m text2sql.eval.run --planner mock --min-accuracy 1.0
+
+      - name: Eval — real planner (only when API key is configured)
+        if: ${{ env.ANTHROPIC_API_KEY != '' }}
+        run: uv run python -m text2sql.eval.run --planner anthropic --min-accuracy 0.8

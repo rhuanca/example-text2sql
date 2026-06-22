@@ -14,9 +14,8 @@ data); **Postgres** is the eventual production target.
 
 This replaces a previous Snowflake-only solution (a Snowflake *semantic view*,
 driven by Cortex Analyst) with a portable, open implementation we control. The
-reference Snowflake semantic view lives at
-`/home/renan/src-shipley/semantic_models/build/sv_product_sales.deployed.sql`
-and is the source of fidelity for the data model below.
+data model is based on a retail transaction schema with three tables: a
+product-level sales fact table, a store dimension, and a daily budget fact.
 
 This spec covers the **engine only**. A chat UI with plots is a later spec.
 
@@ -28,7 +27,7 @@ This spec covers the **engine only**. A chat UI with plots is a later spec.
 - Implement the engine as **NL → Semantic Query IR → deterministic SQL**.
   The LLM never writes raw SQL; it only selects metrics/dimensions/filters
   into a structured object. A deterministic, dialect-aware compiler emits SQL.
-- Ship a concrete model for three tables: **sales, storeinfo, budget**.
+- Ship a concrete model for three tables: **fact_sales, dim_store, fact_budget**.
 - Seed a SQLite database with small, deterministic sample data sufficient to
   answer real questions (e.g. "How is Dozen Glazed performing week over week?").
 - Make the planner swappable: an Anthropic Claude planner and a mock planner.
@@ -59,7 +58,7 @@ module per dialect on the same IR.
 
 ```
    user question                  ┌──────────────── TEXT-TO-SQL ENGINE ────────────────┐
- "How is Dozen Glazed   ───────►  │                                                     │
+ "How is Cappuccino   ───────►  │                                                     │
   performing WoW?"                │  1. Schema Linker      (entity discovery)           │
                                   │       narrow model to relevant tables/dims/metrics, │
                                   │       resolve synonyms (revenue→total_net_sales)    │
@@ -137,7 +136,7 @@ text2sql/
   db/
     seed.py             # build sqlite file + insert sample rows
 models/
-  sales.yml             # the sales/storeinfo/budget semantic model
+  sales.yml             # the fact_sales/dim_store/fact_budget semantic model
 specs/
   001-text-to-sql-engine/spec.md
 tests/
@@ -173,50 +172,50 @@ name: product_sales
 dialect: sqlite
 
 tables:
-  - name: sales
-    table: sales
+  - name: fact_sales
+    table: fact_sales
     grain: "one row per product line per transaction"
     description: "Combined in-store (NCR) and online (OLO) product-level detail."
-  - name: storeinfo
-    table: storeinfo
-    primary_key: fc_number
+  - name: dim_store
+    table: dim_store
+    primary_key: store_id
     description: "Store/franchise master dimension. One row per store."
-  - name: budget
-    table: budget
+  - name: fact_budget
+    table: fact_budget
     grain: "one row per store per calendar day"
     description: "Planned daily net sales targets."
 
 relationships:
-  - from: sales.fc_number
-    to: storeinfo.fc_number
-  - from: budget.fc_number
-    to: storeinfo.fc_number
+  - from: fact_sales.store_id
+    to: dim_store.store_id
+  - from: fact_budget.store_id
+    to: dim_store.store_id
 
 dimensions:
-  - { table: sales, name: product_name, column: product_name,
+  - { table: fact_sales, name: product_name, column: product_name,
       synonyms: [item, product, sku name] }
-  - { table: sales, name: category_name, column: category_name,
+  - { table: fact_sales, name: category_name, column: category_name,
       synonyms: [category, product category] }
-  - { table: sales, name: purchase_location, column: purchase_location,
+  - { table: fact_sales, name: purchase_location, column: purchase_location,
       synonyms: [channel, in-store vs online], sample_values: [At Shop, Online] }
-  - { table: sales, name: date, column: date, type: date,
+  - { table: fact_sales, name: date, column: date, type: date,
       synonyms: [business date, transaction date, day] }
-  - { table: sales, name: iso_week, column: iso_week, synonyms: [week] }
-  - { table: sales, name: iso_year, column: iso_year, synonyms: [year] }
-  - { table: sales, name: fc_number, column: fc_number,
+  - { table: fact_sales, name: iso_week, column: iso_week, synonyms: [week] }
+  - { table: fact_sales, name: iso_year, column: iso_year, synonyms: [year] }
+  - { table: fact_sales, name: store_id, column: store_id,
       synonyms: [store, location, fc] }
-  - { table: storeinfo, name: market, column: market, synonyms: [market, area] }
-  - { table: storeinfo, name: region, column: region, synonyms: [region] }
-  - { table: storeinfo, name: state, column: state }
-  - { table: storeinfo, name: corporate_franchise, column: corporate_franchise,
+  - { table: dim_store, name: market, column: market, synonyms: [market, area] }
+  - { table: dim_store, name: region, column: region, synonyms: [region] }
+  - { table: dim_store, name: state, column: state }
+  - { table: dim_store, name: corporate_franchise, column: corporate_franchise,
       synonyms: [ownership type, corp vs franchise] }
-  - { table: storeinfo, name: lifecycle_stage, column: lifecycle_stage,
+  - { table: dim_store, name: lifecycle_stage, column: lifecycle_stage,
       synonyms: [store status] }
 
 facts:
-  - { table: sales, name: item_net_sales, column: item_net_sales }
-  - { table: sales, name: quantity, column: quantity }
-  - { table: budget, name: budget_net_sales, column: budget_net_sales }
+  - { table: fact_sales, name: item_net_sales, column: item_net_sales }
+  - { table: fact_sales, name: quantity, column: quantity }
+  - { table: fact_budget, name: budget_net_sales, column: budget_net_sales }
 
 metrics:
   - name: total_net_sales
@@ -276,10 +275,10 @@ IR rules:
    returns the same SQL with no I/O. Covered by unit tests with no LLM.
 3. **Joins from relationships.** When an IR mixes `sales` metrics with
    `storeinfo` dimensions (e.g. revenue by market), the compiler joins via the
-   declared `sales.fc_number -> storeinfo.fc_number` relationship.
+   declared `sales.store_id -> storeinfo.store_id` relationship.
 4. **Fan-out guard for budget vs actual.** Budget is daily per store; sales is
    per line. The compiler must aggregate budget and actuals **separately** and
-   join on `fc_number` (+ date grain) — never join raw tables, which would fan
+   join on `store_id` (+ date grain) — never join raw tables, which would fan
    one budget row across every sales line and double count. A test asserts a
    budget-vs-actual IR produces a join of two aggregates (CTEs/subqueries),
    not a raw-table join.
@@ -302,9 +301,9 @@ IR rules:
 
 ## 7. Sample data (SQLite seed)
 
-`db/seed.py` creates `sales`, `storeinfo`, `budget` with a handful of stores
-(e.g. FC5063, FC5100 across markets Houston/Dallas), a few products including
-`Dozen Glazed`, several ISO weeks of dated transactions (some flagged
+`db/seed.py` creates `fact_sales`, `dim_store`, `fact_budget` with a handful of stores
+(e.g. ST001, ST002 across markets Denver/Portland), a few products including
+`Cappuccino`, several ISO weeks of dated transactions (some flagged
 deleted/return to exercise the metric base filters), and matching daily budget
 rows. Data is small, fixed, and committed so tests are reproducible — no random
 generation.

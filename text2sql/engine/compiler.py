@@ -3,8 +3,8 @@
 Pure function, no I/O and no LLM. Two paths:
 
 * single base table  -> SELECT ... GROUP BY, with INNER JOINs to dimension
-  tables (e.g. storeinfo) resolved from declared relationships.
-* multiple base tables (metrics from 2+ tables, e.g. sales + budget)
+  tables (e.g. dim_store) resolved from declared relationships.
+* multiple base tables (metrics from 2+ tables, e.g. fact_sales + fact_budget)
   -> one aggregated subquery per base table grouped by the shared keys, then
   the aggregates are joined on those keys. This is the fan-out guard: a budget
   row is never joined to a raw sales line, so nothing double-counts.

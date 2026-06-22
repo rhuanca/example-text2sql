@@ -29,7 +29,7 @@ class TestExecutor(unittest.TestCase):
                 "metrics": ["total_net_sales", "units_sold"],
                 "dimensions": ["iso_year", "iso_week"],
                 "filters": [
-                    {"field": "product_name", "op": "=", "value": "Dozen Glazed"}
+                    {"field": "product_name", "op": "=", "value": "Cappuccino"}
                 ],
                 "order_by": [{"field": "iso_week", "dir": "asc"}],
             }
@@ -38,7 +38,7 @@ class TestExecutor(unittest.TestCase):
         columns, rows = self.exec.run(sql, params)
         self.assertEqual(columns, ["iso_year", "iso_week", "total_net_sales", "units_sold"])
         self.assertEqual(len(rows), 2)
-        # week 10 (all stores): T1 12.49 + T2 24.98 + T5 return -12.49 + FC5100 T9 12.49
+        # week 10 (all stores): T1 12.49 + T2 24.98 + T5 return -12.49 + ST002 T9 12.49
         #   = 37.47 (deleted T4 excluded). units: 1 + 2 + 1 + 1 = 5.
         self.assertEqual(rows[0][1], 10)
         self.assertAlmostEqual(rows[0][2], 37.47, places=2)
@@ -51,17 +51,17 @@ class TestExecutor(unittest.TestCase):
         ir = SemanticQuery.from_dict(
             {
                 "metrics": ["total_net_sales", "total_budget"],
-                "dimensions": ["fc_number"],
-                "order_by": [{"field": "fc_number", "dir": "asc"}],
+                "dimensions": ["store_id"],
+                "order_by": [{"field": "store_id", "dir": "asc"}],
             }
         )
         sql, params = compile(ir, self.model, self.dialect)
         columns, rows = self.exec.run(sql, params)
-        self.assertEqual(columns, ["fc_number", "total_net_sales", "total_budget"])
+        self.assertEqual(columns, ["store_id", "total_net_sales", "total_budget"])
         by_store = {r[0]: r for r in rows}
-        # FC5063 budget = 3500 + 3600 = 7100 (NOT fanned out across sales lines)
-        self.assertAlmostEqual(by_store["FC5063"][2], 7100.00, places=2)
-        self.assertAlmostEqual(by_store["FC5100"][2], 5700.00, places=2)
+        # ST001 budget = 3500 + 3600 = 7100 (NOT fanned out across sales lines)
+        self.assertAlmostEqual(by_store["ST001"][2], 7100.00, places=2)
+        self.assertAlmostEqual(by_store["ST002"][2], 5700.00, places=2)
 
 
 if __name__ == "__main__":

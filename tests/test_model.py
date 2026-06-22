@@ -8,19 +8,19 @@ class TestModelLoad(unittest.TestCase):
     def test_loads_sales_model(self):
         m = load_sales_model()
         self.assertEqual(m.name, "product_sales")
-        self.assertEqual(m.metric("total_net_sales").table, "sales")
-        self.assertEqual(m.dimension("market").table, "storeinfo")
+        self.assertEqual(m.metric("total_net_sales").table, "fact_sales")
+        self.assertEqual(m.dimension("market").table, "dim_store")
         self.assertIn("revenue", m.metric("total_net_sales").synonyms)
 
     def test_relationship_between(self):
         m = load_sales_model()
-        rel = m.relationship_between("sales", "storeinfo")
-        self.assertEqual(rel.from_column, "fc_number")
-        self.assertEqual(rel.to_column, "fc_number")
+        rel = m.relationship_between("fact_sales", "dim_store")
+        self.assertEqual(rel.from_column, "store_id")
+        self.assertEqual(rel.to_column, "store_id")
 
     def test_physical_columns_includes_join_key(self):
         m = load_sales_model()
-        self.assertIn("fc_number", m.physical_columns("budget"))
+        self.assertIn("store_id", m.physical_columns("fact_budget"))
 
 
 class TestModelValidation(unittest.TestCase):

@@ -1,0 +1,149 @@
+# Evaluation dataset for the text-to-SQL planner.
+#
+# Each case pairs a natural-language question with the Semantic Query IR a
+# correct planner should produce. `expected` is the IR dict shape consumed by
+# SemanticQuery.from_dict; it may reference only metrics/dimensions defined in
+# models/sales.yml. The runner scores a planner's output against these.
+
+cases:
+  - id: total-sales-scalar
+    question: "What were our total net sales overall?"
+    tags: [scalar, single-table]
+    expected:
+      metrics: [total_net_sales]
+      dimensions: []
+
+  - id: sales-by-market
+    question: "What were total net sales by market?"
+    tags: [cross-table-join, categorical]
+    expected:
+      metrics: [total_net_sales]
+      dimensions: [market]
+
+  - id: sales-by-region
+    question: "Show net sales broken down by region"
+    tags: [cross-table-join, categorical]
+    expected:
+      metrics: [total_net_sales]
+      dimensions: [region]
+
+  - id: sales-by-state
+    question: "Total sales by state please"
+    tags: [cross-table-join, categorical]
+    expected:
+      metrics: [total_net_sales]
+      dimensions: [state]
+
+  - id: sales-by-store
+    question: "Net sales for each store"
+    tags: [single-table, categorical]
+    expected:
+      metrics: [total_net_sales]
+      dimensions: [store_id]
+
+  - id: units-by-category
+    question: "How many units did we sell by category?"
+    tags: [single-table, categorical]
+    expected:
+      metrics: [units_sold]
+      dimensions: [category_name]
+
+  - id: traffic-by-channel
+    question: "Order traffic by sales channel"
+    tags: [single-table, categorical]
+    expected:
+      metrics: [traffic]
+      dimensions: [purchase_location]
+
+  - id: cappuccino-wow
+    question: "How is Cappuccino performing week over week?"
+    tags: [filter, time-series, single-table]
+    expected:
+      metrics: [total_net_sales, units_sold]
+      dimensions: [product_name, iso_year, iso_week]
+      filters: [{ field: product_name, op: "=", value: "Cappuccino" }]
+      order_by: [{ field: iso_week, dir: asc }]
+
+  - id: online-sales
+    question: "What were total net sales for online orders only?"
+    tags: [filter, scalar]
+    expected:
+      metrics: [total_net_sales]
+      dimensions: []
+      filters: [{ field: purchase_location, op: "=", value: "Online" }]
+
+  - id: open-stores-sales
+    question: "Net sales by store for stores that are open"
+    tags: [filter, cross-table-join]
+    expected:
+      metrics: [total_net_sales]
+      dimensions: [store_id]
+      filters: [{ field: lifecycle_stage, op: "=", value: "Open" }]
+
+  - id: corporate-vs-franchise
+    question: "Compare net sales for corporate versus franchise stores"
+    tags: [cross-table-join, categorical]
+    expected:
+      metrics: [total_net_sales]
+      dimensions: [corporate_franchise]
+
+  - id: houston-sales
+    question: "Total net sales in the Houston market"
+    tags: [filter, cross-table-join, scalar, ambiguous]
+    expected:
+      metrics: [total_net_sales]
+      dimensions: []
+      filters: [{ field: market, op: "=", value: "Houston" }]
+    # "in the Houston market" is equally well read as grouping by the market
+    # you filtered to; both return the same total.
+    also_accept:
+      - metrics: [total_net_sales]
+        dimensions: [market]
+        filters: [{ field: market, op: "=", value: "Houston" }]
+
+  - id: sales-last-30-days
+    question: "What were total net sales in the last 30 days?"
+    tags: [time-window, scalar]
+    expected:
+      metrics: [total_net_sales]
+      dimensions: []
+      time: { field: date, last_n_days: 30 }
+
+  - id: sales-by-market-last-30
+    question: "Net sales by market over the last 30 days"
+    tags: [time-window, cross-table-join]
+    expected:
+      metrics: [total_net_sales]
+      dimensions: [market]
+      time: { field: date, last_n_days: 30 }
+
+  - id: weekly-traffic
+    question: "Show order traffic by week"
+    tags: [time-series, single-table]
+    expected:
+      metrics: [traffic]
+      dimensions: [iso_year, iso_week]
+      order_by: [{ field: iso_year, dir: asc }, { field: iso_week, dir: asc }]
+
+  - id: top-products
+    question: "What are the top 5 products by net sales?"
+    tags: [order-by, limit, single-table]
+    expected:
+      metrics: [total_net_sales]
+      dimensions: [product_name]
+      order_by: [{ field: total_net_sales, dir: desc }]
+      limit: 5
+
+  - id: budget-vs-actual
+    question: "Budget vs actual by store"
+    tags: [fan-out, multi-base]
+    expected:
+      metrics: [total_net_sales, total_budget]
+      dimensions: [store_id]
+
+  - id: total-budget-scalar
+    question: "What is our total budgeted sales target?"
+    tags: [scalar, single-table]
+    expected:
+      metrics: [total_budget]
+      dimensions: []

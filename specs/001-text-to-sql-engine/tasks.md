@@ -38,7 +38,7 @@ Each task is atomic, independently committable, and lands with its tests.
 ## T4 — Compiler joins + fan-out guard  (extends `compiler.py` + `test_compiler.py`)
 - Cross-table: `sales` metric grouped by `storeinfo` dimension → join via
   relationship.
-- Multi-base fan-out: `total_net_sales` + `total_budget` by `fc_number`(+date)
+- Multi-base fan-out: `total_net_sales` + `total_budget` by `store_id`(+date)
   → two aggregated CTEs joined on the keys.
 - Tests: join uses the declared relationship; budget-vs-actual produces a
   two-aggregate join (assert no raw sales×budget join), correct grain.

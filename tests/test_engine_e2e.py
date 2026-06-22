@@ -12,11 +12,11 @@ from tests.util import load_sales_model
 
 RULES = [
     (
-        "dozen glazed",
+        "cappuccino",
         {
             "metrics": ["total_net_sales", "units_sold"],
-            "dimensions": ["iso_year", "iso_week"],
-            "filters": [{"field": "product_name", "op": "=", "value": "Dozen Glazed"}],
+            "dimensions": ["product_name", "iso_year", "iso_week"],
+            "filters": [{"field": "product_name", "op": "=", "value": "Cappuccino"}],
             "order_by": [{"field": "iso_week", "dir": "asc"}],
         },
     ),
@@ -24,7 +24,7 @@ RULES = [
         "budget",
         {
             "metrics": ["total_net_sales", "total_budget"],
-            "dimensions": ["fc_number"],
+            "dimensions": ["store_id"],
         },
     ),
 ]
@@ -48,7 +48,7 @@ class EngineCase(unittest.TestCase):
 class TestEngineE2E(EngineCase):
     def test_dozen_glazed_question(self):
         engine = self.make_engine(MockPlanner(RULES))
-        result = engine.ask("How is Dozen Glazed performing week over week?")
+        result = engine.ask("How is Cappuccino performing week over week?")
         self.assertEqual(len(result.rows), 2)
         self.assertIn("total_net_sales", result.columns)
         self.assertTrue(result.sql.lower().startswith("select"))
