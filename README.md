@@ -177,13 +177,13 @@ eval/cases.yml # the committed dataset
 
 ## The semantic model (`models/sales.yml`)
 
-Three tables, mapped from an existing Snowflake semantic view:
+Three tables:
 
-| logical table | source view | key fields |
-|---|---|---|
-| `fact_sales` | `VW_NCR_OLO_TRANSACTION_LEVEL_DETAIL` | metrics `total_net_sales`, `units_sold`, `traffic` |
-| `dim_store` | `VW_FRANCONNECT_PROFILES` | dims `market`, `region`, `corporate_franchise`, … |
-| `fact_budget` | `VW_SWS_BUDGET` | metric `total_budget` |
+| logical table | key fields |
+|---|---|
+| `fact_sales` | metrics `total_net_sales`, `units_sold`, `traffic` |
+| `dim_store` | dims `market`, `region`, `corporate_franchise`, … |
+| `fact_budget` | metric `total_budget` |
 
 Relationships: `fact_sales.store_id → dim_store.store_id`,
 `fact_budget.store_id → dim_store.store_id`.

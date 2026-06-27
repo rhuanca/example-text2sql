@@ -1,10 +1,7 @@
 name: product_sales
 dialect: sqlite
 
-# Logical tables. Mapped from the Snowflake semantic view sv_product_sales:
-#   fact_sales  <- VW_NCR_OLO_TRANSACTION_LEVEL_DETAIL
-#   dim_store   <- VW_FRANCONNECT_PROFILES
-#   fact_budget <- VW_SWS_BUDGET
+# Logical tables.
 tables:
   - name: fact_sales
     table: fact_sales
