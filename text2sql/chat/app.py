@@ -27,7 +27,7 @@ from text2sql.db.seed import build_database
 from text2sql.engine.dialects.sqlite import SqliteDialect
 from text2sql.engine.engine import Engine, EngineError
 from text2sql.engine.executor import SqliteExecutor
-from text2sql.engine.planner import AnthropicPlanner, MockPlanner
+from text2sql.engine.planner import AnthropicPlanner, PlannerError
 from text2sql.semantic.model import load_model
 from text2sql.chat.charts import ChartSpec, choose_chart
 from text2sql.chat.summarizer import AnthropicSummarizer, MockSummarizer
@@ -40,18 +40,6 @@ EXAMPLES = [
     "How is Cappuccino performing week over week?",
     "What were total net sales by market?",
     "Budget vs actual by store",
-]
-
-# Used only if no API key is configured, so the app still demos offline.
-_FALLBACK_RULES = [
-    ("cappuccino", {
-        "metrics": ["total_net_sales", "units_sold"],
-        "dimensions": ["product_name", "iso_year", "iso_week"],
-        "filters": [{"field": "product_name", "op": "=", "value": "Cappuccino"}],
-        "order_by": [{"field": "iso_week", "dir": "asc"}],
-    }),
-    ("market", {"metrics": ["total_net_sales"], "dimensions": ["market"]}),
-    ("budget", {"metrics": ["total_net_sales", "total_budget"], "dimensions": ["store_id"]}),
 ]
 
 
@@ -75,7 +63,9 @@ def build_engine() -> Engine:
     if not os.path.exists(DB_PATH):
         build_database(DB_PATH)
     model = load_model(MODEL_PATH)
-    planner = AnthropicPlanner() if get_api_key() else MockPlanner(_FALLBACK_RULES)
+    if not get_api_key():
+        raise PlannerError("ANTHROPIC_API_KEY is not set — the chat app needs it.")
+    planner = AnthropicPlanner()
     return Engine(model, planner, SqliteDialect(), SqliteExecutor(DB_PATH))
 
 
@@ -132,7 +122,7 @@ def main():
     with st.sidebar:
         st.subheader("Model")
         st.caption(f"semantic model: `{engine.model.name}`")
-        st.caption(f"planner model: `{get_model() if get_api_key() else 'mock (no API key)'}`")
+        st.caption(f"planner model: `{get_model()}`")
         st.subheader("Try asking")
         for ex in EXAMPLES:
             st.markdown(f"- {ex}")

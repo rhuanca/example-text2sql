@@ -11,14 +11,13 @@ uv run python -m unittest tests.test_compiler         # one test module
 uv run python -m unittest tests.test_compiler.TestCompiler.test_name   # one test
 uv run python -m text2sql.db.seed                     # write ./demo.db sample data
 uv run streamlit run text2sql/chat/app.py             # chat UI
-uv run python -m text2sql.eval.run                    # eval, mock planner (self-check, 100%)
-uv run python -m text2sql.eval.run --planner anthropic --min-accuracy 0.8   # eval real LLM (needs key)
+uv run python -m text2sql.eval.run --min-accuracy 0.8   # eval real LLM (needs key)
 ```
 
-The suite is fully offline. The live Anthropic test (`tests/test_planner_anthropic.py`)
-and the real-planner eval auto-skip when `ANTHROPIC_API_KEY` is absent. CI
-(`.github/workflows/ci.yml`) runs unit tests + mock eval (gated at `--min-accuracy 1.0`)
-on every push, plus the real-planner eval when the API-key secret exists.
+The unit suite is fully offline. The live Anthropic test (`tests/test_planner_anthropic.py`)
+and the eval need `ANTHROPIC_API_KEY` (the live test auto-skips when it is absent).
+CI (`.github/workflows/ci.yml`) runs the unit tests on every push, plus the
+real-planner eval when the API-key secret exists.
 
 To use the real planner locally, put `ANTHROPIC_API_KEY=sk-ant-...` (optionally
 `ANTHROPIC_MODEL=...`) in a `.env` at the project root (gitignored, loaded by `text2sql/config.py`).
@@ -44,8 +43,8 @@ unit-tested code. This is why the model can't hallucinate columns or joins.
 - `engine/dialects/` — `base` protocol + `sqlite` / `postgres`. Same IR, one Dialect per DB.
   SQLite is the live target; Postgres compiles but isn't executed against a live DB yet.
 - `engine/validator.py` — guardrails: SELECT-only and fields-must-exist.
-- `engine/planner.py` — `Planner` protocol with `MockPlanner` (deterministic, rule-based,
-  for tests/offline) and `AnthropicPlanner` (real LLM).
+- `engine/planner.py` — `Planner` protocol and `AnthropicPlanner` (real LLM). Tests
+  drive the engine with small inline stub planners instead of the real client.
 - `engine/engine.py` — orchestrates plan→validate_ir→compile→validate_sql→execute with a
   **bounded repair loop**: on a recoverable error it re-plans, passing the prior error
   string back to the planner (`max_retries=1` by default).

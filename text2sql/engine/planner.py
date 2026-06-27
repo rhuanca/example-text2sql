@@ -1,7 +1,8 @@
 """Query Planner: natural language -> Semantic Query IR.
 
-This is the only fuzzy step. The protocol lets us swap a real LLM planner
-(AnthropicPlanner, added in T8) for a deterministic MockPlanner in tests.
+This is the only fuzzy step. The Planner protocol lets the engine depend on an
+interface rather than a concrete LLM client; AnthropicPlanner is the real
+implementation.
 """
 
 from __future__ import annotations
@@ -22,23 +23,6 @@ class Planner(Protocol):
         self, question: str, model: SemanticModel, error: str | None = None
     ) -> SemanticQuery:
         ...
-
-
-class MockPlanner:
-    """Maps a question to a canned IR by case-insensitive substring match.
-
-    rules: list of (substring, ir_dict). The first match wins.
-    """
-
-    def __init__(self, rules: list[tuple[str, dict]]):
-        self.rules = rules
-
-    def plan(self, question, model, error=None) -> SemanticQuery:
-        q = question.lower()
-        for key, ir in self.rules:
-            if key.lower() in q:
-                return SemanticQuery.from_dict(ir)
-        raise PlannerError(f"no rule matched question: {question!r}")
 
 
 _TOOL_DESC = (

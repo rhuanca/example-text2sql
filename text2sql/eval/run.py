@@ -1,12 +1,10 @@
 """CLI: run the evaluation suite and print a report.
 
-    uv run python -m text2sql.eval.run                  # mock planner (harness self-check)
-    uv run python -m text2sql.eval.run --planner anthropic
+    uv run python -m text2sql.eval.run                      # measure the real planner
     uv run python -m text2sql.eval.run --cases path/to/cases.yml
 
-The mock planner replays each case's expected IR, so it reports 100% — it
-exercises the harness end to end. Point ``--planner anthropic`` at the real LLM
-(needs ANTHROPIC_API_KEY) to measure actual planner accuracy.
+Runs the real LLM planner (needs ANTHROPIC_API_KEY) against the committed cases
+and scores its accuracy.
 """
 
 from __future__ import annotations
@@ -18,7 +16,7 @@ from pathlib import Path
 from ..db.seed import build_database
 from ..engine.dialects.sqlite import SqliteDialect
 from ..engine.executor import SqliteExecutor
-from ..engine.planner import AnthropicPlanner, MockPlanner
+from ..engine.planner import AnthropicPlanner
 from ..semantic.model import load_model
 from .dataset import load_cases
 from .report import format_report
@@ -30,15 +28,8 @@ MODEL_PATH = REPO_ROOT / "models" / "sales.yml"
 DB_PATH = REPO_ROOT / "demo.db"
 
 
-def _mock_planner(cases):
-    rules = [(c.question, c.expected.to_dict()) for c in cases]
-    rules.sort(key=lambda kv: len(kv[0]), reverse=True)
-    return MockPlanner(rules)
-
-
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Run the text2sql eval suite.")
-    parser.add_argument("--planner", choices=["mock", "anthropic"], default="mock")
     parser.add_argument("--cases", default=str(DEFAULT_CASES))
     parser.add_argument(
         "--min-accuracy",
@@ -54,10 +45,7 @@ def main(argv=None) -> int:
     if not DB_PATH.exists():
         build_database(DB_PATH)
 
-    if args.planner == "anthropic":
-        planner = AnthropicPlanner()
-    else:
-        planner = _mock_planner(cases)
+    planner = AnthropicPlanner()
 
     report = run_suite(cases, planner, model, SqliteDialect(), SqliteExecutor(DB_PATH))
     print(format_report(report))

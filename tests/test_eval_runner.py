@@ -15,15 +15,15 @@ CASES_PATH = Path(__file__).resolve().parents[1] / "eval" / "cases.yml"
 
 
 def perfect_rules(cases):
-    """MockPlanner rules that reproduce each case's expected IR. Longest
-    questions first so no question is shadowed by a shorter substring."""
+    """Rules that reproduce each case's expected IR. Longest questions first so
+    no question is shadowed by a shorter substring."""
     rules = [(c.question, c.expected.to_dict()) for c in cases]
     rules.sort(key=lambda kv: len(kv[0]), reverse=True)
     return rules
 
 
 class _PlannerFromRules:
-    """Like MockPlanner but matches the full question exactly (no substring
+    """Test stub planner: matches the full question exactly (no substring
     ambiguity), falling back to a configured override per question."""
 
     def __init__(self, by_question, override=None):

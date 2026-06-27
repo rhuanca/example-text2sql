@@ -27,9 +27,6 @@ jobs:
       - name: Run unit tests
         run: uv run python -m unittest discover -s tests
 
-      - name: Eval — mock planner (deterministic self-check)
-        run: uv run python -m text2sql.eval.run --planner mock --min-accuracy 1.0
-
       - name: Eval — real planner (only when API key is configured)
         if: ${{ env.ANTHROPIC_API_KEY != '' }}
-        run: uv run python -m text2sql.eval.run --planner anthropic --min-accuracy 0.8
+        run: uv run python -m text2sql.eval.run --min-accuracy 0.8

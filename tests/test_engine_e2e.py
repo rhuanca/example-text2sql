@@ -7,7 +7,6 @@ from text2sql.engine.dialects.sqlite import SqliteDialect
 from text2sql.engine.engine import Engine
 from text2sql.engine.executor import SqliteExecutor
 from text2sql.engine.ir import SemanticQuery
-from text2sql.engine.planner import MockPlanner
 from tests.util import load_sales_model
 
 RULES = [
@@ -30,6 +29,20 @@ RULES = [
 ]
 
 
+class RulePlanner:
+    """Test stub: returns a canned IR by case-insensitive substring match."""
+
+    def __init__(self, rules):
+        self.rules = rules
+
+    def plan(self, question, model, error=None):
+        q = question.lower()
+        for key, ir in self.rules:
+            if key.lower() in q:
+                return SemanticQuery.from_dict(ir)
+        raise AssertionError(f"no rule matched question: {question!r}")
+
+
 class EngineCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -47,14 +60,14 @@ class EngineCase(unittest.TestCase):
 
 class TestEngineE2E(EngineCase):
     def test_dozen_glazed_question(self):
-        engine = self.make_engine(MockPlanner(RULES))
+        engine = self.make_engine(RulePlanner(RULES))
         result = engine.ask("How is Cappuccino performing week over week?")
         self.assertEqual(len(result.rows), 2)
         self.assertIn("total_net_sales", result.columns)
         self.assertTrue(result.sql.lower().startswith("select"))
 
     def test_budget_question(self):
-        engine = self.make_engine(MockPlanner(RULES))
+        engine = self.make_engine(RulePlanner(RULES))
         result = engine.ask("Show budget vs actual by store")
         self.assertIn("total_budget", result.columns)
         self.assertEqual(len(result.rows), 2)

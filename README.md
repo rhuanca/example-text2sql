@@ -31,7 +31,7 @@ text2sql/
     dialects/              # base / sqlite / postgres
     validator.py           # SELECT-only + fields-exist guardrails
     executor.py            # read-only SQLite execution
-    planner.py             # Planner protocol, MockPlanner, AnthropicPlanner
+    planner.py             # Planner protocol, AnthropicPlanner
     engine.py              # orchestration + bounded repair loop
   db/seed.py               # deterministic SQLite sample data
   config.py                # loads dotenv: ANTHROPIC_API_KEY / ANTHROPIC_MODEL
@@ -73,33 +73,18 @@ Anthropic test is automatically **skipped** when no API key is present.
 
 ## Ask a question
 
-Offline, with the deterministic mock planner:
+With the real Claude planner (needs the key in `.env`):
 
 ```python
 from text2sql.semantic.model import load_model
 from text2sql.engine.dialects.sqlite import SqliteDialect
 from text2sql.engine.engine import Engine
 from text2sql.engine.executor import SqliteExecutor
-from text2sql.engine.planner import MockPlanner
+from text2sql.engine.planner import AnthropicPlanner
 from text2sql.db.seed import build_database
 
 model = load_model("models/sales.yml")
 db = build_database("demo.db")
-rules = [("cappuccino", {
-    "metrics": ["total_net_sales", "units_sold"],
-    "dimensions": ["product_name", "iso_year", "iso_week"],
-    "filters": [{"field": "product_name", "op": "=", "value": "Cappuccino"}],
-    "order_by": [{"field": "iso_week", "dir": "asc"}],
-})]
-engine = Engine(model, MockPlanner(rules), SqliteDialect(), SqliteExecutor(db))
-r = engine.ask("How is Cappuccino performing week over week?")
-print(r.sql); print(r.rows)
-```
-
-With the real Claude planner (needs the key), swap the planner:
-
-```python
-from text2sql.engine.planner import AnthropicPlanner
 engine = Engine(model, AnthropicPlanner(), SqliteDialect(), SqliteExecutor(db))
 r = engine.ask("Budget vs actual by store")
 print(r.ir.to_dict()); print(r.sql); print(r.rows)
@@ -123,8 +108,7 @@ For each answer it shows, in order:
 4. an expander revealing the **SQL and the Semantic Query (IR)**.
 
 The summary is additive — if the LLM call fails the chart and table still show.
-With no API key set, the app falls back to the deterministic mock planner so the
-example questions still work. Try:
+The app needs `ANTHROPIC_API_KEY` set (in `.env`). Try:
 
 - *How is Cappuccino performing week over week?* → line chart over ISO week
 - *What were total net sales by market?* → bar chart
@@ -137,8 +121,7 @@ into a number and a regression gate. A committed dataset pairs questions with th
 IR a correct planner should produce; a runner scores a planner against it.
 
 ```bash
-uv run python -m text2sql.eval.run                   # mock planner — harness self-check (100%)
-uv run python -m text2sql.eval.run --planner anthropic   # measure the real LLM (needs key)
+uv run python -m text2sql.eval.run                   # measure the real LLM (needs key)
 uv run python -m text2sql.eval.run --cases eval/cases.yml
 ```
 
@@ -156,14 +139,13 @@ Each case is scored two ways:
 
 `--min-accuracy 0.8` makes the CLI exit non-zero when execution accuracy drops
 below the floor, so it doubles as a regression gate. GitHub Actions
-(`.github/workflows/ci.yml`) runs the unit tests and the mock-planner eval on
-every push/PR, and the real-planner eval when an `ANTHROPIC_API_KEY` secret is
-configured.
+(`.github/workflows/ci.yml`) runs the unit tests on every push/PR, and the
+real-planner eval when an `ANTHROPIC_API_KEY` secret is configured.
 
 The dataset lives in `eval/cases.yml`; add a case by writing a question and its
 expected IR (same shape as the model's `examples`). The scorer and runner are
-pure and covered by `tests/test_eval_scorer.py` / `tests/test_eval_runner.py`;
-the mock-planner run keeps the suite green offline.
+pure and covered by `tests/test_eval_scorer.py` / `tests/test_eval_runner.py`,
+which drive the runner with small inline stub planners so the suite stays offline.
 
 ```
 text2sql/eval/
