@@ -14,3 +14,6 @@ build/
 # Generated files
 *.pptx
 build_deck.py
+
+# Slide deck QA byproducts (PDFs, render previews)
+slides/tmp/

@@ -1,0 +1,336 @@
+{
+  "theme": "personal",
+  "slides": [
+    {
+      "type": "image_hero",
+      "image": "/home/renan/src-mydev/example-text2sql/slides/assets/rosetta-stone.jpg",
+      "eyebrow": "THE BIG IDEA",
+      "title": "A Rosetta Stone\nfor your data",
+      "subtitle": "A semantic IR translates plain-English questions into SQL — the way the stone let scholars read a lost language through one they already knew.",
+      "caption": "The Rosetta Stone — photo by Hans Hillewaert, licensed CC BY-SA 4.0 (Wikimedia Commons)."
+    },
+    {
+      "type": "diagram",
+      "title": "What is an IR (Intermediate Representation)?",
+      "rows": [
+        [
+          {
+            "id": "q",
+            "title": "Natural-language question",
+            "subtitle": "\"net sales by city, last 30 days\"",
+            "group": "neutral"
+          }
+        ],
+        [
+          {
+            "id": "ir",
+            "title": "IR — a Semantic Query",
+            "subtitle": "a structured, validated pick: metrics · dimensions · filters · time",
+            "group": "highlight"
+          }
+        ],
+        [
+          {
+            "id": "sql",
+            "title": "SQL",
+            "subtitle": "executable query",
+            "group": "neutral"
+          }
+        ]
+      ],
+      "edges": [
+        [
+          "q",
+          "ir"
+        ],
+        [
+          "ir",
+          "sql"
+        ]
+      ],
+      "caption": "An IR is the structured middle step between a question and SQL — the same idea compilers use (source code → IR → machine code). The LLM writes the IR; deterministic code writes the SQL."
+    },
+    {
+      "type": "panels",
+      "title": "Why not just let the LLM write SQL?",
+      "arrows": false,
+      "mono": false,
+      "panels": [
+        {
+          "title": "LLM writes SQL",
+          "subtitle": "risky",
+          "group": "fuzzy",
+          "lines": [
+            "Invents columns that don't exist",
+            "Wrong joins → silently wrong numbers",
+            "Raw values → SQL injection",
+            "Non-deterministic: same question,",
+            "different SQL"
+          ]
+        },
+        {
+          "title": "LLM fills an IR",
+          "subtitle": "safe",
+          "group": "highlight",
+          "lines": [
+            "Only fields that exist in the model",
+            "Joins & aggregation by tested code",
+            "Values always bound as parameters",
+            "Deterministic: same IR → same SQL,",
+            "every time"
+          ]
+        }
+      ],
+      "caption": "The IR constrains the model to valid choices, then deterministic code does the rest — so it can't hallucinate columns, double-count, or drift."
+    },
+    {
+      "type": "diagram",
+      "title": "The pipeline: question → IR → SQL",
+      "rows": [
+        [
+          {
+            "id": "q",
+            "title": "Question",
+            "subtitle": "natural language",
+            "group": "neutral"
+          }
+        ],
+        [
+          {
+            "id": "planner",
+            "title": "Planner — LLM",
+            "subtitle": "the only fuzzy step",
+            "group": "fuzzy"
+          }
+        ],
+        [
+          {
+            "id": "ir",
+            "title": "Semantic Query (IR)",
+            "subtitle": "the contract — metrics · dimensions · filters",
+            "group": "highlight"
+          }
+        ],
+        [
+          {
+            "id": "compiler",
+            "title": "Compiler",
+            "subtitle": "pure · deterministic",
+            "group": "neutral"
+          }
+        ],
+        [
+          {
+            "id": "sql",
+            "title": "SQL",
+            "subtitle": "parameterized · SELECT-only",
+            "group": "neutral"
+          }
+        ],
+        [
+          {
+            "id": "db",
+            "title": "Database",
+            "subtitle": "SQLite · Postgres",
+            "group": "neutral"
+          }
+        ]
+      ],
+      "edges": [
+        [
+          "q",
+          "planner"
+        ],
+        [
+          "planner",
+          "ir"
+        ],
+        [
+          "ir",
+          "compiler"
+        ],
+        [
+          "compiler",
+          "sql"
+        ],
+        [
+          "sql",
+          "db"
+        ]
+      ],
+      "caption": "The LLM never writes SQL — it only emits the IR. Everything from the IR down is pure, tested code, so it can't hallucinate columns or joins."
+    },
+    {
+      "type": "code",
+      "title": "The system prompt (built from the YAML model)",
+      "code": "You translate natural-language questions into a structured query (an IR) for a semantic model. You do NOT write SQL.\nSelect only from the metrics and dimensions listed below; resolve the user's wording to these canonical names using the synonyms.\nAlways answer by calling the emit_query tool.\n\nMETRICS (aggregated measures):\n- total_net_sales  [synonyms: sales, net sales, revenue, total sales, product sales]\n- units_sold  [synonyms: units, quantity sold, items sold, volume]\n- traffic  [synonyms: orders, order count, checks, transactions, traffic]\n- total_budget  [synonyms: budget, budgeted sales, sales target, budget target, plan]\n\nDIMENSIONS (group-by / filter attributes):\n- product_name  [synonyms: item, product, sku name; examples: Cappuccino, Americano, Black Coffee]\n- category_name  [synonyms: category, product category, item category; examples: Espresso Drinks, Coffee, Pastries]\n- purchase_location  [synonyms: channel, sales channel, in-store vs online, where purchased; examples: At Shop, Online]\n- date  [synonyms: business date, transaction date, day]\n- iso_week  [synonyms: week, week number]\n- iso_year  [synonyms: year]\n- store_id  [synonyms: store, location, fc, store code, franchise code]\n- market  [synonyms: market, area, territory; examples: Houston, Dallas, San Antonio]\n- region  [synonyms: region, division]\n- state  [synonyms: state]\n- corporate_franchise  [synonyms: ownership type, corp vs franchise, corporate vs franchise; examples: Corporate, Franchise]\n- lifecycle_stage  [synonyms: store status, lifecycle, operational status; examples: Open, Temporarily Closed, Terminated]\n\nRULES:\n- order_by fields must be among the selected metrics/dimensions.\n- For 'last N days' style ranges use the time window (a date dimension + last_n_days).\n- Filters compare a dimension to a value with one of: =, !=, <, <=, >, >=, in, not in, like.\n\nEXAMPLES:\nQ: How is Cappuccino performing week over week?\nIR: {\"metrics\": [\"total_net_sales\", \"units_sold\"], \"dimensions\": [\"product_name\", \"iso_year\", \"iso_week\"], \"filters\": [{\"field\": \"product_name\", \"op\": \"=\", \"value\": \"Cappuccino\"}], \"order_by\": [{\"field\": \"iso_week\", \"dir\": \"asc\"}]}\nQ: Net sales by market last 30 days\nIR: {\"metrics\": [\"total_net_sales\"], \"dimensions\": [\"market\"], \"time\": {\"field\": \"date\", \"last_n_days\": 30}}\nQ: Budget vs actual by store\nIR: {\"metrics\": [\"total_net_sales\", \"total_budget\"], \"dimensions\": [\"store_id\"]}",
+      "size": 9,
+      "caption": "Emitted by build_system_prompt(model). It is the LLM's rulebook — note line 1: 'You do NOT write SQL.' Sent as the system message; the user's question is the only user input."
+    },
+    {
+      "type": "diagram",
+      "title": "How the LLM translates a question into IR",
+      "rows": [
+        [
+          {
+            "id": "schema",
+            "title": "JSON Schema",
+            "subtitle": "the grammar",
+            "group": "accent"
+          },
+          {
+            "id": "prompt",
+            "title": "System prompt",
+            "subtitle": "the vocabulary",
+            "group": "accent"
+          },
+          {
+            "id": "examples",
+            "title": "Examples",
+            "subtitle": "the mapping",
+            "group": "accent"
+          }
+        ],
+        [
+          {
+            "id": "llm",
+            "title": "LLM",
+            "subtitle": "picks the fields",
+            "group": "neutral"
+          }
+        ],
+        [
+          {
+            "id": "ir",
+            "title": "Semantic Query (IR)",
+            "subtitle": "metrics · dimensions · filters",
+            "group": "highlight"
+          }
+        ]
+      ],
+      "edges": [
+        [
+          "schema",
+          "llm"
+        ],
+        [
+          "prompt",
+          "llm"
+        ],
+        [
+          "examples",
+          "llm"
+        ],
+        [
+          "llm",
+          "ir"
+        ]
+      ],
+      "caption": "Schema fixes the shape · prompt gives the words · examples show the pattern — so the IR only ever uses fields from your model."
+    },
+    {
+      "type": "table",
+      "title": "The IR pattern: the schema is a form, the planner fills it in",
+      "intro": "Q:  \"How is Cappuccino performing week over week?\"",
+      "columns": [
+        "field",
+        "schema  (the blank)",
+        "planner output  (filled in)"
+      ],
+      "col_widths": [
+        0.18,
+        0.34,
+        0.48
+      ],
+      "accent_col": 2,
+      "rows": [
+        [
+          "metrics",
+          "array<string>  · required",
+          "[\"total_net_sales\", \"units_sold\"]"
+        ],
+        [
+          "dimensions",
+          "array<string>  · required",
+          "[\"product_name\", \"iso_year\", \"iso_week\"]"
+        ],
+        [
+          "filters",
+          "[{field, op, value}]",
+          "[{ product_name = \"Cappuccino\" }]"
+        ],
+        [
+          "order_by",
+          "[{field, dir}]",
+          "[{ iso_week, asc }]"
+        ],
+        [
+          "time",
+          "{field, last_n_days}",
+          "— optional (left empty)"
+        ],
+        [
+          "limit",
+          "integer",
+          "— optional (left empty)"
+        ]
+      ],
+      "caption": "The schema defines the blanks (and their types); the planner fills them in — same shape every time, so the compiler can trust it and the LLM can't drift into freeform SQL."
+    },
+    {
+      "type": "panels",
+      "title": "The compiler: IR → SQL, deterministically",
+      "panels": [
+        {
+          "title": "IR",
+          "subtitle": "from the planner",
+          "group": "accent",
+          "lines": [
+            "metrics:",
+            "  total_net_sales",
+            "dimensions:",
+            "  market",
+            "filters:",
+            "  market = \"Houston\""
+          ]
+        },
+        {
+          "title": "compile()",
+          "group": "highlight",
+          "subtitle": "pure · deterministic · no LLM",
+          "lines": [
+            "metric        ->  SUM(CASE...)",
+            "dimension     ->  GROUP BY",
+            "filter        ->  WHERE = ?",
+            "relationship  ->  JOIN"
+          ]
+        },
+        {
+          "title": "SQL",
+          "subtitle": "parameterized · SELECT-only",
+          "group": "accent",
+          "lines": [
+            "SELECT market, SUM(...)",
+            "FROM   fact_sales",
+            "JOIN   dim_store",
+            "WHERE  market = ?",
+            "GROUP BY market"
+          ]
+        }
+      ],
+      "caption": "Same rules every time: each IR field maps to a fixed SQL clause. No LLM here — so the output is deterministic, parameterized (no injection), and SELECT-only."
+    },
+    {
+      "type": "image",
+      "title": "Anatomy of the product_sales semantic model",
+      "image": "/home/renan/src-mydev/example-text2sql/slides/assets/semantic-anatomy.png",
+      "caption": "Six building blocks in one models/sales.yml: 3 tables joined by 2 relationships expose 4 facts, 12 dimensions and 4 metrics; 3 examples teach the planner. (Mirrors a Snowflake semantic view.)"
+    },
+    {
+      "type": "image",
+      "title": "Synonyms: many phrasings → one canonical name",
+      "image": "/home/renan/src-mydev/example-text2sql/slides/assets/synonyms-map.png",
+      "caption": "Every metric and dimension lists its synonyms, so the planner resolves free wording to one canonical name — the only name the schema, compiler and SQL ever see. This is what makes the NL → IR mapping work."
+    }
+  ]
+}
