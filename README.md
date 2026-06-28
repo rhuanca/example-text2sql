@@ -1,79 +1,124 @@
-# text2sql — YAML-driven Text-to-SQL engine
+# text2sql — an example of the IR pattern for Text-to-SQL
 
-A text-to-SQL agent whose data model lives in a **YAML semantic model**. A
-question is translated by an LLM into a structured **Semantic Query (IR)** —
-never raw SQL — and a deterministic, dialect-aware compiler turns that IR into
-SQL. This mirrors a Snowflake semantic view: the model only *picks*
-metrics/dimensions/filters; your code emits the SQL.
+This project is a small, complete **reference implementation of the
+Intermediate Representation (IR) pattern** applied to text-to-SQL.
 
-```
-question ──► Schema/Planner (LLM) ──► Semantic Query IR ──► Compiler ──► SQL ──► DB
-                                          (deterministic from here on)
-```
+The one idea worth taking away:
 
-Targets Postgres; **SQLite** is used first (zero-setup, seeded sample data).
-
-## Why this shape
-
-The LLM can only reference metrics/dimensions that exist in the model, so it
-can't hallucinate columns. Joins, aggregation grain, and **fan-out avoidance**
-(budget-vs-actual aggregates-then-joins, never raw-joins) are handled by pure,
-unit-tested code. Portability is one `Dialect` per database on the same IR.
-
-## Layout
+> **The LLM never writes SQL.** It translates a natural-language question into a
+> structured, validated **Intermediate Representation** — and then plain,
+> deterministic code compiles that IR into SQL.
 
 ```
-text2sql/
-  semantic/model.py        # YAML loader + validation, typed model
-  engine/
-    ir.py                  # SemanticQuery IR + JSON schema
-    compiler.py            # pure IR -> SQL (single-base + multi-base fan-out guard)
-    dialects/              # base / sqlite / postgres
-    validator.py           # SELECT-only + fields-exist guardrails
-    executor.py            # read-only SQLite execution
-    planner.py             # Planner protocol, AnthropicPlanner
-    engine.py              # orchestration + bounded repair loop
-  db/seed.py               # deterministic SQLite sample data
-  config.py                # loads dotenv: ANTHROPIC_API_KEY / ANTHROPIC_MODEL
-models/sales.yml           # fact_sales / dim_store / fact_budget semantic model
-tests/                     # unit + e2e (+ gated live LLM test)
-specs/001-text-to-sql-engine/   # spec, plan, tasks
+question ──► Planner (LLM) ──► Semantic Query (IR) ──► Compiler ──► SQL ──► DB
+              the only            the contract          pure, deterministic code
+              fuzzy step                                (from here on, no LLM)
 ```
 
-## Setup
+Everything from the IR onward is pure, unit-tested code, so the model can't
+hallucinate columns, invent joins, or emit unsafe SQL. The data model lives in
+one **YAML semantic model** (mirroring a Snowflake semantic view); the LLM may
+only *pick* metrics/dimensions/filters that exist there.
+
+SQLite is the live target (zero-setup, seeded sample data); Postgres compiles
+through the same IR but isn't executed against a live database yet.
+
+---
+
+## What is an IR?
+
+An **Intermediate Representation** is a structured description of *what to
+query* — the middle step between a question and SQL. The idea is borrowed from
+compilers, which translate `source code → IR → machine code` so that
+optimization and validation happen once, in the middle. Here it's
+`question → IR → SQL`.
+
+In this project the IR is a `SemanticQuery` — a small, fixed-shape object the
+planner fills in. For the question *"How is Cappuccino performing week over
+week?"* the LLM emits:
+
+```json
+{
+  "metrics": ["total_net_sales", "units_sold"],
+  "dimensions": ["product_name", "iso_year", "iso_week"],
+  "filters": [{ "field": "product_name", "op": "=", "value": "Cappuccino" }],
+  "order_by": [{ "field": "iso_week", "dir": "asc" }]
+}
+```
+
+The full shape (all optional unless noted):
+
+| field | meaning |
+|---|---|
+| `metrics` *(required)* | what to measure — names of aggregations, e.g. `total_net_sales` |
+| `dimensions` *(required)* | how to slice it — group-by attributes, e.g. `market`, `iso_week` |
+| `filters` | keep only some rows — `{field, op, value}`; `op ∈ = != < <= > >= in "not in" like` |
+| `time` | a rolling window — `{field, last_n_days}` |
+| `order_by` | sort the result — `{field, dir}`; `dir ∈ asc \| desc` |
+| `limit` | cap the row count |
+
+The planner is *forced* to return an object of exactly this shape (via a
+constrained Anthropic tool call), so the output is always a valid IR — never
+prose, never SQL.
+
+## Why the IR pattern?
+
+Letting an LLM write SQL directly is risky: it invents columns, picks wrong
+joins (silently wrong numbers), and is non-deterministic. Constraining it to an
+IR fixes all of that:
+
+- **No hallucinated columns** — the IR can only name metrics/dimensions defined
+  in the YAML model; a `validate_ir` step rejects anything else.
+- **Deterministic** — the same IR always compiles to the same SQL; the LLM is
+  the only fuzzy step, and it's isolated.
+- **Safe** — filter values are always emitted as **bound parameters** (no
+  injection), and a validator enforces **SELECT-only**.
+- **Correct joins & aggregation** — handled by the compiler from declared
+  relationships, including a **fan-out guard** (budget-vs-actual aggregates each
+  fact table separately *then* joins, so budget rows never double-count against
+  sales lines).
+- **Portable** — one `Dialect` per database on the same IR.
+- **Testable** — the compiler, validator, and eval scorer are pure functions
+  with no I/O and no LLM, so they're deterministically unit-tested.
+
+---
+
+## Build & run
+
+Requires **Python 3.13** and [`uv`](https://docs.astral.sh/uv/).
 
 ```bash
-uv sync
+uv sync                                          # install dependencies
 ```
 
-To use the real LLM planner, create a `.env` in the project root:
+The compiler, validator, executor, and engine all run **fully offline**. Only
+the live LLM planner (and the chat UI / real eval) need an Anthropic API key.
+
+### Use the real LLM planner
+
+Create a `.env` in the project root (gitignored — never commit it):
 
 ```
 ANTHROPIC_API_KEY=sk-ant-...
 # optional: ANTHROPIC_MODEL=claude-opus-4-8
 ```
 
-(`.env` is gitignored — never commit it. Everything except the live planner
-works without a key.)
-
-## Seed the database
+### Seed the sample database
 
 ```bash
-uv run python -m text2sql.db.seed      # writes ./demo.db
+uv run python -m text2sql.db.seed                # writes ./demo.db
 ```
 
-## Run the tests
+### Run the tests
 
 ```bash
-uv run python -m unittest discover -s tests
+uv run python -m unittest discover -s tests                  # full suite (offline)
+uv run python -m unittest tests.test_compiler                # one module
 ```
 
-The compiler/validator/executor/engine suite runs fully offline. The live
-Anthropic test is automatically **skipped** when no API key is present.
+The live Anthropic test auto-skips when no API key is present.
 
-## Ask a question
-
-With the real Claude planner (needs the key in `.env`):
+### Ask a question (Python)
 
 ```python
 from text2sql.semantic.model import load_model
@@ -86,96 +131,109 @@ from text2sql.db.seed import build_database
 model = load_model("models/sales.yml")
 db = build_database("demo.db")
 engine = Engine(model, AnthropicPlanner(), SqliteDialect(), SqliteExecutor(db))
+
 r = engine.ask("Budget vs actual by store")
-print(r.ir.to_dict()); print(r.sql); print(r.rows)
+print(r.ir.to_dict())   # the IR the LLM produced
+print(r.sql)            # the SQL the compiler emitted
+print(r.rows)           # the result
 ```
 
-## Chat UI (with plots)
+### Chat UI (with charts)
 
-A Streamlit chat app sits on top of the engine: type a question and get a
-written answer, an auto-selected chart, the data table, and the generated SQL/IR.
+A Streamlit app sits on the engine: ask a question and get a written summary, an
+auto-selected chart (time → line, category → bar, scalar → number, else table),
+the data table, and an expander revealing the generated SQL and IR. Needs an API
+key.
 
 ```bash
 uv run streamlit run text2sql/chat/app.py
 ```
 
-For each answer it shows, in order:
-1. an **LLM prose summary** of the result,
-2. a chart picked **deterministically from the query shape** — a time dimension
-   (e.g. ISO week) → line, a categorical dimension (e.g. market) → bar, a scalar
-   metric → a single number, otherwise just the table,
-3. the **data table**, and
-4. an expander revealing the **SQL and the Semantic Query (IR)**.
+Try: *"How is Cappuccino performing week over week?"*, *"What were total net
+sales by market?"*, *"Budget vs actual by store"*.
 
-The summary is additive — if the LLM call fails the chart and table still show.
-The app needs `ANTHROPIC_API_KEY` set (in `.env`). Try:
+### Evaluation harness
 
-- *How is Cappuccino performing week over week?* → line chart over ISO week
-- *What were total net sales by market?* → bar chart
-- *Budget vs actual by store* → table (fan-out-safe)
-
-## Evaluation harness
-
-The planner is the only fuzzy step (NL → IR). The eval harness turns its quality
-into a number and a regression gate. A committed dataset pairs questions with the
-IR a correct planner should produce; a runner scores a planner against it.
+The planner (NL → IR) is the only fuzzy step; the eval harness turns its quality
+into a number and a CI regression gate. A committed dataset (`eval/cases.yml`)
+pairs questions with the IR a correct planner should produce.
 
 ```bash
-uv run python -m text2sql.eval.run                   # measure the real LLM (needs key)
-uv run python -m text2sql.eval.run --cases eval/cases.yml
+uv run python -m text2sql.eval.run                       # measure the real LLM (needs key)
+uv run python -m text2sql.eval.run --min-accuracy 0.8    # exit non-zero below the floor
 ```
 
-Each case is scored two ways:
+Each case is scored two ways: **execution accuracy** (compile + run both the
+expected and predicted IR, compare result sets as a multiset — forgives
+semantically-equivalent IRs) and **IR component scores** (precision/recall over
+metrics/dimensions/filters, diagnostic). CI runs the unit tests on every push,
+plus the real-planner eval when an `ANTHROPIC_API_KEY` secret is configured.
 
-1. **Execution accuracy** (pass/fail) — both the expected and predicted IR are
-   compiled and run against the seeded SQLite, and the result sets are compared.
-   This forgives semantically-equivalent IRs that differ only in text. Rows match
-   as a multiset (numeric `5` == `5.0`), and order is enforced only when the
-   expected IR specifies an `order_by`.
-2. **IR component scores** (diagnostic) — precision/recall over metrics,
-   dimensions, and filters (compared as sets), plus an `exact` flag that also
-   accounts for ordering, the time window, and the limit. These pinpoint *which*
-   part of a wrong query the planner got wrong.
+---
 
-`--min-accuracy 0.8` makes the CLI exit non-zero when execution accuracy drops
-below the floor, so it doubles as a regression gate. GitHub Actions
-(`.github/workflows/ci.yml`) runs the unit tests on every push/PR, and the
-real-planner eval when an `ANTHROPIC_API_KEY` secret is configured.
-
-The dataset lives in `eval/cases.yml`; add a case by writing a question and its
-expected IR (same shape as the model's `examples`). The scorer and runner are
-pure and covered by `tests/test_eval_scorer.py` / `tests/test_eval_runner.py`,
-which drive the runner with small inline stub planners so the suite stays offline.
+## Architecture
 
 ```
-text2sql/eval/
-  dataset.py   # EvalCase + load_cases
-  scorer.py    # pure IR comparison + result-set comparison
-  runner.py    # run_suite -> Report (per-case + summary)
-  report.py    # text report
-  run.py       # CLI
-eval/cases.yml # the committed dataset
+text2sql/
+  semantic/model.py     # loads + validates models/sales.yml into a typed SemanticModel
+  engine/
+    ir.py               # the SemanticQuery IR dataclass + its JSON schema
+    planner.py          # Planner protocol + AnthropicPlanner (real LLM, forced tool call)
+    compiler.py         # pure compile(ir, model, dialect) -> (sql, params)
+    validator.py        # guardrails: SELECT-only, and every field must exist in the model
+    dialects/           # base protocol + sqlite (live) / postgres (compiles only)
+    executor.py         # read-only SQLite execution
+    engine.py           # orchestration: plan → validate → compile → validate → execute
+  db/seed.py            # deterministic SQLite sample data
+  config.py             # loads .env (ANTHROPIC_API_KEY / ANTHROPIC_MODEL)
+  chat/                 # Streamlit UI
+  eval/                 # NL→IR evaluation harness
+models/sales.yml        # the semantic model (the single source of truth)
+tests/                  # unit + e2e (+ a gated live-LLM test)
 ```
+
+The flow, in code:
+
+1. **`planner.plan(question, model)`** — the LLM returns an IR via a forced
+   `emit_query` tool call constrained to the IR JSON schema.
+2. **`validate_ir(ir, model)`** — every metric/dimension/filter field must exist
+   in the model.
+3. **`compile(ir, model, dialect)`** — pure IR → `(sql, params)`. Two paths: a
+   **single base table** (GROUP BY + INNER JOINs to dimension tables) and a
+   **multi-base** path (metrics from 2+ fact tables) that aggregates each table
+   in its own subquery before joining — the fan-out guard.
+4. **`validate_sql(sql)`** — SELECT-only.
+5. **execute** against SQLite.
+
+`Engine.ask()` wires these together with a **bounded repair loop**: on a
+recoverable error it re-plans once, feeding the prior error back to the planner.
 
 ## The semantic model (`models/sales.yml`)
 
-Three tables:
+One YAML file is the source of truth — the prompt, the validator, and the
+compiler all read from it. It declares six building blocks (mirroring a
+Snowflake semantic view):
 
-| logical table | key fields |
+| block | example |
 |---|---|
-| `fact_sales` | metrics `total_net_sales`, `units_sold`, `traffic` |
-| `dim_store` | dims `market`, `region`, `corporate_franchise`, … |
-| `fact_budget` | metric `total_budget` |
+| **tables** | `fact_sales`, `dim_store`, `fact_budget` |
+| **relationships** | `fact_sales.store_id → dim_store.store_id` |
+| **facts** (raw columns) | `item_net_sales`, `quantity`, `budget_net_sales` |
+| **dimensions** (attributes) | `market`, `product_name`, `date`, `iso_week`, … |
+| **metrics** (aggregations) | `total_net_sales = SUM(...)`, `traffic = COUNT(DISTINCT ...)`, … |
+| **examples** | few-shot question → IR pairs that prime the planner |
 
-Relationships: `fact_sales.store_id → dim_store.store_id`,
-`fact_budget.store_id → dim_store.store_id`.
+Metrics and dimensions also carry **synonyms** (so *"revenue"* resolves to
+`total_net_sales`, *"territory"* to `market`) and **sample values**, which is
+what lets the planner map free wording onto canonical names.
 
-Add a metric/dimension by editing the YAML — no engine change needed. Add a
-database by adding a `Dialect`.
+**Extend it by editing the YAML** — add a metric or dimension and the engine
+needs no change. Add a database by adding a `Dialect`.
 
 ## Status
 
-- Spec 001 — engine (T0–T8), Postgres seam (T9), docs (T10): **done**.
-- Spec 002 — chat UI with plots (U1–U5): **done**.
-- Spec 003 — evaluation harness (E1–E7): **done**.
-- Postgres *execution* against a live database is a future spec.
+- Engine, Postgres compile seam, chat UI, and eval harness: **done**.
+- Live Postgres *execution* against a real database is future work.
+
+See `specs/` for the spec-driven history (each feature has a spec, plan, tasks).
+</content>
