@@ -217,7 +217,7 @@ Snowflake semantic view):
 |---|---|
 | **tables** | `fact_sales`, `dim_store` |
 | **relationships** | `fact_sales.store_id → dim_store.store_id` |
-| **facts** (raw columns) | `item_net_sales`, `quantity` |
+| **facts** (raw columns) | `item_sale`, `quantity` |
 | **dimensions** (attributes) | `market`, `product_name`, `date`, `week`, … |
 | **metrics** (aggregations) | `total_sale = SUM(...)`, `traffic = COUNT(DISTINCT ...)`, … |
 | **examples** | few-shot question → IR pairs that prime the planner |
