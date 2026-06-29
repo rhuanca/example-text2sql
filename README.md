@@ -74,9 +74,9 @@ IR fixes all of that:
 - **Safe** — filter values are always emitted as **bound parameters** (no
   injection), and a validator enforces **SELECT-only**.
 - **Correct joins & aggregation** — handled by the compiler from declared
-  relationships, including a **fan-out guard** (budget-vs-actual aggregates each
-  fact table separately *then* joins, so budget rows never double-count against
-  sales lines).
+  relationships, including a **fan-out guard** (when a query draws metrics from
+  two fact tables, each is aggregated in its own subquery *then* joined, so rows
+  never double-count).
 - **Portable** — one `Dialect` per database on the same IR.
 - **Testable** — the compiler, validator, and eval scorer are pure functions
   with no I/O and no LLM, so they're deterministically unit-tested.
@@ -132,7 +132,7 @@ model = load_model("models/sales.yml")
 db = build_database("demo.db")
 engine = Engine(model, AnthropicPlanner(), SqliteDialect(), SqliteExecutor(db))
 
-r = engine.ask("Budget vs actual by store")
+r = engine.ask("How is Cappuccino performing last week?")
 print(r.ir.to_dict())   # the IR the LLM produced
 print(r.sql)            # the SQL the compiler emitted
 print(r.rows)           # the result
@@ -215,9 +215,9 @@ Snowflake semantic view):
 
 | block | example |
 |---|---|
-| **tables** | `fact_sales`, `dim_store`, `fact_budget` |
+| **tables** | `fact_sales`, `dim_store` |
 | **relationships** | `fact_sales.store_id → dim_store.store_id` |
-| **facts** (raw columns) | `item_net_sales`, `quantity`, `budget_net_sales` |
+| **facts** (raw columns) | `item_net_sales`, `quantity` |
 | **dimensions** (attributes) | `market`, `product_name`, `date`, `week`, … |
 | **metrics** (aggregations) | `total_sale = SUM(...)`, `traffic = COUNT(DISTINCT ...)`, … |
 | **examples** | few-shot question → IR pairs that prime the planner |
