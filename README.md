@@ -39,10 +39,10 @@ week?"* the LLM emits:
 
 ```json
 {
-  "metrics": ["total_net_sales", "units_sold"],
-  "dimensions": ["product_name", "iso_year", "iso_week"],
+  "metrics": ["total_sale", "units_sold"],
+  "dimensions": ["product_name", "year", "week"],
   "filters": [{ "field": "product_name", "op": "=", "value": "Cappuccino" }],
-  "order_by": [{ "field": "iso_week", "dir": "asc" }]
+  "order_by": [{ "field": "week", "dir": "asc" }]
 }
 ```
 
@@ -50,8 +50,8 @@ The full shape (all optional unless noted):
 
 | field | meaning |
 |---|---|
-| `metrics` *(required)* | what to measure — names of aggregations, e.g. `total_net_sales` |
-| `dimensions` *(required)* | how to slice it — group-by attributes, e.g. `market`, `iso_week` |
+| `metrics` *(required)* | what to measure — names of aggregations, e.g. `total_sale` |
+| `dimensions` *(required)* | how to slice it — group-by attributes, e.g. `market`, `week` |
 | `filters` | keep only some rows — `{field, op, value}`; `op ∈ = != < <= > >= in "not in" like` |
 | `time` | a rolling window — `{field, last_n_days}` |
 | `order_by` | sort the result — `{field, dir}`; `dir ∈ asc \| desc` |
@@ -149,8 +149,7 @@ key.
 uv run streamlit run text2sql/chat/app.py
 ```
 
-Try: *"How is Cappuccino performing week over week?"*, *"What were total net
-sales by market?"*, *"Budget vs actual by store"*.
+Try: *"How is Cappuccino performing last week?"*, *"What were total sales?"*.
 
 ### Evaluation harness
 
@@ -219,12 +218,12 @@ Snowflake semantic view):
 | **tables** | `fact_sales`, `dim_store`, `fact_budget` |
 | **relationships** | `fact_sales.store_id → dim_store.store_id` |
 | **facts** (raw columns) | `item_net_sales`, `quantity`, `budget_net_sales` |
-| **dimensions** (attributes) | `market`, `product_name`, `date`, `iso_week`, … |
-| **metrics** (aggregations) | `total_net_sales = SUM(...)`, `traffic = COUNT(DISTINCT ...)`, … |
+| **dimensions** (attributes) | `market`, `product_name`, `date`, `week`, … |
+| **metrics** (aggregations) | `total_sale = SUM(...)`, `traffic = COUNT(DISTINCT ...)`, … |
 | **examples** | few-shot question → IR pairs that prime the planner |
 
 Metrics and dimensions also carry **synonyms** (so *"revenue"* resolves to
-`total_net_sales`, *"territory"* to `market`) and **sample values**, which is
+`total_sale`, *"territory"* to `market`) and **sample values**, which is
 what lets the planner map free wording onto canonical names.
 
 **Extend it by editing the YAML** — add a metric or dimension and the engine
