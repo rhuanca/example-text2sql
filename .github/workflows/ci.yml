@@ -30,3 +30,10 @@ jobs:
       - name: Eval — real planner (only when API key is configured)
         if: ${{ env.ANTHROPIC_API_KEY != '' }}
         run: uv run python -m text2sql.eval.run --min-accuracy 0.8
+
+      - name: Eval — QBO model (only when API key is configured)
+        if: ${{ env.ANTHROPIC_API_KEY != '' }}
+        run: >
+          uv run python -m text2sql.eval.run
+          --cases eval/cases_qbo.yml --model models/qbo.yml --db demo_qbo.db
+          --min-accuracy 0.8

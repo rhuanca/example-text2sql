@@ -8,6 +8,7 @@ __pycache__/
 
 # Build artifacts
 demo.db
+demo_qbo.db
 *.sqlite
 build/
 

@@ -1,0 +1,166 @@
+name: qbo_finance
+dialect: sqlite
+
+# QuickBooks Online general-ledger export. See specs/004-qbo-poc/domain.md.
+# The LLM never emits SQL; it only picks the metrics/dimensions/filters below.
+
+tables:
+  - name: txn
+    table: qbo_txn_consolidated
+    grain: "one GL posting line (one transaction line hitting one account)"
+    description: >
+      Consolidated Transaction Detail by Account across all entities and
+      transaction types. Amount is a signed value stored as text; the compiler
+      casts it. Revenue vs expense is sliced with a filter on `classification`
+      (reached by joining qbo_accounts), not by separate metrics.
+  - name: invoices
+    table: qbo_invoices
+    grain: "one invoice line"
+    description: >
+      A/R sales invoice lines. Aggregate separately from txn and join on Entity
+      for invoiced-vs-posted comparisons (the fan-out guard).
+  - name: accounts
+    table: qbo_accounts
+    primary_key: Id
+    description: >
+      Chart of accounts master. One row per account. Carries Classification
+      (Revenue/Expense/Asset/Liability/Equity) and account type/subtype.
+      Join key from txn: AccountID = Id.
+  - name: acct_hier
+    table: hierarchy_by_account
+    primary_key: AcctNum
+    description: >
+      Account-number rollup for P&L / financial-statement grouping (Lvl1-3).
+      Join key from txn: Account_Number = AcctNum.
+  - name: class_hier
+    table: hierarchy_by_class
+    primary_key: Class
+    description: >
+      Class -> Department -> DepartmentCategory rollup. Join key from txn: Class.
+
+relationships:
+  - { from: txn.AccountID, to: accounts.Id }
+  - { from: txn.Account_Number, to: acct_hier.AcctNum }
+  - { from: txn.Class, to: class_hier.Class }
+
+dimensions:
+  # ---- txn (qbo_txn_consolidated) ----
+  - { table: txn, name: txn_date, column: Date, type: date,
+      synonyms: [date, transaction date, posting date, day] }
+  - { table: txn, name: txn_year, column: Year, type: number,
+      synonyms: [year] }
+  - { table: txn, name: txn_month, column: Month, type: number,
+      synonyms: [month] }
+  - { table: txn, name: txn_quarter, column: Quarter, type: number,
+      synonyms: [quarter, qtr] }
+  - { table: txn, name: entity, column: Entity,
+      synonyms: [company, legal entity, subsidiary, book],
+      sample_values: ["Coffee US", "Coffee EU"] }
+  - { table: txn, name: transaction_type, column: TransactionType,
+      synonyms: [txn type, type, transaction kind],
+      sample_values: ["Invoice", "Bill", "Expense"] }
+  - { table: txn, name: customer, column: Customer,
+      synonyms: [client, buyer] }
+  - { table: txn, name: vendor, column: Vendor,
+      synonyms: [supplier, payee] }
+  - { table: txn, name: class, column: Class,
+      synonyms: [class, segment],
+      sample_values: ["Retail", "Wholesale", "Online"] }
+  - { table: txn, name: account_name, column: Account,
+      synonyms: [account, gl account, ledger account],
+      sample_values: ["Product Sales", "Rent Expense", "Payroll Expense"] }
+  # ---- accounts (qbo_accounts), reached by join ----
+  - { table: accounts, name: classification, column: Classification,
+      synonyms: [account classification, revenue vs expense, pnl bucket],
+      sample_values: ["Revenue", "Expense", "Asset", "Liability", "Equity"] }
+  - { table: accounts, name: account_type, column: AccountType,
+      synonyms: [account type],
+      sample_values: ["Income", "Expense", "Cost of Goods Sold"] }
+  - { table: accounts, name: account_subtype, column: AccountSubType,
+      synonyms: [account subtype, sub type] }
+  # ---- acct_hier (hierarchy_by_account) ----
+  - { table: acct_hier, name: acct_lvl1, column: Lvl1,
+      synonyms: [statement section, top level account group, level 1],
+      sample_values: ["Income", "Operating Expenses", "Cost of Sales"] }
+  - { table: acct_hier, name: acct_lvl2, column: Lvl2,
+      synonyms: [account group, level 2] }
+  - { table: acct_hier, name: acct_lvl3, column: Lvl3,
+      synonyms: [account subgroup, level 3] }
+  # ---- class_hier (hierarchy_by_class) ----
+  - { table: class_hier, name: department, column: Department,
+      synonyms: [department, dept, cost center],
+      sample_values: ["Store Operations", "Wholesale", "E-Commerce"] }
+  - { table: class_hier, name: department_category, column: DepartmentCategory,
+      synonyms: [department category, dept category] }
+  # ---- invoices (qbo_invoices) ----
+  - { table: invoices, name: invoice_date, column: Date, type: date,
+      synonyms: [invoice date] }
+  - { table: invoices, name: invoice_year, column: Year, type: number,
+      synonyms: [invoice year] }
+  - { table: invoices, name: invoice_month, column: Month, type: number,
+      synonyms: [invoice month] }
+  - { table: invoices, name: item, column: SalesItemLineDetail_ItemRef_name,
+      synonyms: [item, product, sku],
+      sample_values: ["Espresso Beans", "Cold Brew Kit", "Mug"] }
+  - { table: invoices, name: invoice_class, column: SalesItemLineDetail_ClassRef_name,
+      synonyms: [invoice class] }
+
+facts:
+  # ---- txn measures + join keys ----
+  - { table: txn, name: amount, column: Amount }
+  - { table: txn, name: txn_num, column: Num }            # transaction id for distinct counts
+  - { table: txn, name: txn_account_id, column: AccountID }        # join key -> accounts.Id
+  - { table: txn, name: txn_account_number, column: Account_Number }  # join key -> acct_hier.AcctNum
+  # ---- invoices measures + shared key ----
+  - { table: invoices, name: invoice_line_amount, column: Amount }
+  - { table: invoices, name: invoice_qty, column: SalesItemLineDetail_Qty }
+  # Entity declared on invoices so it is a shared multi-base group-by key with txn
+  # (mirrors budget_store_id in the sales model).
+  - { table: invoices, name: invoice_entity, column: Entity }
+
+metrics:
+  - name: total_amount
+    table: txn
+    sql: "SUM(CAST(Amount AS REAL))"
+    synonyms: [amount, total, total amount, spend, revenue, expenses, net]
+  - name: transaction_count
+    table: txn
+    sql: "COUNT(DISTINCT Num)"
+    synonyms: [transactions, number of transactions, count, txn count]
+  - name: invoiced_amount
+    table: invoices
+    sql: "SUM(CAST(Amount AS REAL))"
+    synonyms: [invoiced, invoice amount, billed amount, invoiced sales]
+  - name: units_invoiced
+    table: invoices
+    sql: "SUM(CAST(SalesItemLineDetail_Qty AS REAL))"
+    synonyms: [units, quantity invoiced, items invoiced]
+
+examples:
+  - question: "What was our total revenue this year?"
+    ir:
+      metrics: [total_amount]
+      dimensions: []
+      filters: [{ field: classification, op: "=", value: "Revenue" }]
+  - question: "Show revenue by month"
+    ir:
+      metrics: [total_amount]
+      dimensions: [txn_year, txn_month]
+      filters: [{ field: classification, op: "=", value: "Revenue" }]
+      order_by: [{ field: txn_year, dir: asc }, { field: txn_month, dir: asc }]
+  - question: "Top 10 expense accounts"
+    ir:
+      metrics: [total_amount]
+      dimensions: [account_name]
+      filters: [{ field: classification, op: "=", value: "Expense" }]
+      order_by: [{ field: total_amount, dir: desc }]
+      limit: 10
+  - question: "Expenses by department"
+    ir:
+      metrics: [total_amount]
+      dimensions: [department]
+      filters: [{ field: classification, op: "=", value: "Expense" }]
+  - question: "Invoiced amount vs posted amount by entity"
+    ir:
+      metrics: [invoiced_amount, total_amount]
+      dimensions: [entity]

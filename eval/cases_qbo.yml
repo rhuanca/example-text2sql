@@ -1,0 +1,94 @@
+# Evaluation dataset for the QBO finance planner (models/qbo.yml).
+#
+# Each case pairs a natural-language question with the Semantic Query IR a
+# correct planner should produce. Fields reference only metrics/dimensions
+# defined in models/qbo.yml. See specs/004-qbo-poc/domain.md for the sign
+# convention (revenue/expense expressed as total_amount + classification filter).
+
+cases:
+  - id: revenue-total
+    question: "What was our total revenue?"
+    tags: [scalar, cross-table-join, filter]
+    expected:
+      metrics: [total_amount]
+      dimensions: []
+      filters: [{ field: classification, op: "=", value: "Revenue" }]
+
+  - id: revenue-by-month
+    question: "Show revenue by month"
+    tags: [time-series, cross-table-join, filter]
+    expected:
+      metrics: [total_amount]
+      dimensions: [txn_year, txn_month]
+      filters: [{ field: classification, op: "=", value: "Revenue" }]
+      order_by: [{ field: txn_year, dir: asc }, { field: txn_month, dir: asc }]
+
+  - id: top-expense-accounts
+    question: "What are our top 10 expense accounts?"
+    tags: [order-by, limit, cross-table-join, filter]
+    expected:
+      metrics: [total_amount]
+      dimensions: [account_name]
+      filters: [{ field: classification, op: "=", value: "Expense" }]
+      order_by: [{ field: total_amount, dir: desc }]
+      limit: 10
+
+  - id: expenses-by-department
+    question: "Break down expenses by department"
+    tags: [categorical, cross-table-join, filter]
+    expected:
+      metrics: [total_amount]
+      dimensions: [department]
+      filters: [{ field: classification, op: "=", value: "Expense" }]
+
+  - id: expenses-by-quarter
+    question: "Total expenses by quarter"
+    tags: [time-series, cross-table-join, filter]
+    expected:
+      metrics: [total_amount]
+      dimensions: [txn_year, txn_quarter]
+      filters: [{ field: classification, op: "=", value: "Expense" }]
+      order_by: [{ field: txn_year, dir: asc }, { field: txn_quarter, dir: asc }]
+
+  - id: amount-by-statement-section
+    question: "Show the total amount by top-level account category"
+    tags: [categorical, cross-table-join]
+    expected:
+      metrics: [total_amount]
+      dimensions: [acct_lvl1]
+
+  - id: spend-with-vendor
+    question: "How much did we spend with Sysco?"
+    tags: [filter, scalar, single-table]
+    expected:
+      metrics: [total_amount]
+      dimensions: []
+      filters: [{ field: vendor, op: "=", value: "Sysco" }]
+
+  - id: totals-by-transaction-type
+    question: "What is the total amount by transaction type?"
+    tags: [categorical, single-table]
+    expected:
+      metrics: [total_amount]
+      dimensions: [transaction_type]
+
+  - id: transactions-by-entity
+    question: "How many transactions per entity?"
+    tags: [categorical, single-table]
+    expected:
+      metrics: [transaction_count]
+      dimensions: [entity]
+
+  - id: units-by-item
+    question: "How many units did we invoice by item?"
+    tags: [categorical, single-table]
+    expected:
+      metrics: [units_invoiced]
+      dimensions: [item]
+
+  - id: invoiced-vs-posted-by-entity
+    question: "Compare invoiced amount to posted amount by entity"
+    tags: [fan-out, multi-base]
+    expected:
+      metrics: [invoiced_amount, total_amount]
+      dimensions: [entity]
