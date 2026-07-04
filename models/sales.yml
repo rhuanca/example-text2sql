@@ -19,6 +19,7 @@ tables:
   - name: fact_budget
     table: fact_budget
     grain: "one row per store per calendar day"
+    keys: [store_id]   # join key to dim_store (aggregated separately from fact_sales)
     description: >
       Planned daily net sales targets. One row per store per day. Aggregate
       separately from fact_sales and join on store_id + date for budget vs actual.
@@ -64,8 +65,6 @@ facts:
   - { table: fact_sales, name: item_net_sales, column: item_net_sales }
   - { table: fact_sales, name: quantity, column: quantity }
   - { table: fact_budget, name: budget_net_sales, column: budget_net_sales }
-  # store_id is the budget join key; declared so the relationship validates.
-  - { table: fact_budget, name: budget_store_id, column: store_id }
 
 metrics:
   - name: total_net_sales

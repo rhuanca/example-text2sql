@@ -19,16 +19,32 @@ class Table:
     name: str  # logical name used everywhere (e.g. "sales")
     table: str  # physical table name in the database
     description: str = ""
-    primary_key: str | None = None
+    # Identity of the table; may be composite (list of columns). Declared here so
+    # the columns count as known physical columns that joins can target.
+    primary_key: list[str] = field(default_factory=list)
+    # Other structural key columns: foreign/join keys, and keys shared across
+    # fact tables for multi-base grouping. These are NOT measures — measures go
+    # in `facts`. (Snowflake keeps join keys off the FACTS clause the same way.)
+    keys: list[str] = field(default_factory=list)
     grain: str = ""
 
 
 @dataclass
 class Relationship:
     from_table: str
-    from_column: str
     to_table: str
-    to_column: str
+    # One or more (from_column, to_column) equalities, ANDed together on join.
+    # A single pair is the common case; multiple pairs express a composite join
+    # (e.g. AccountID + Entity, where an id is only unique within a company).
+    column_pairs: list[tuple[str, str]]
+
+    @property
+    def from_column(self) -> str:
+        return self.column_pairs[0][0]
+
+    @property
+    def to_column(self) -> str:
+        return self.column_pairs[0][1]
 
 
 @dataclass
@@ -127,14 +143,23 @@ class SemanticModel:
             if f.table == table_name:
                 cols.add(f.column)
         t = self.table(table_name)
-        if t.primary_key:
-            cols.add(t.primary_key)
+        cols.update(t.primary_key)
+        cols.update(t.keys)
         for r in self.relationships:
             if r.from_table == table_name:
-                cols.add(r.from_column)
+                cols.update(fc for fc, _ in r.column_pairs)
             if r.to_table == table_name:
-                cols.add(r.to_column)
+                cols.update(tc for _, tc in r.column_pairs)
         return cols
+
+
+def _as_list(value) -> list[str]:
+    """Normalize a scalar-or-list YAML field to a list (None -> [])."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    return list(value)
 
 
 def _split_ref(ref: str) -> tuple[str, str]:
@@ -142,6 +167,36 @@ def _split_ref(ref: str) -> tuple[str, str]:
         raise ValueError(f"relationship endpoint must be 'table.column': {ref}")
     table, col = ref.split(".", 1)
     return table, col
+
+
+def _build_relationship(r: dict) -> Relationship:
+    """Parse one relationship entry. Single-column form:
+
+        { from: txn.AccountID, to: accounts.Id }
+
+    Composite (multi-column) form adds `also`, each an extra equality whose two
+    sides reference the same two tables (either order):
+
+        from: txn.AccountID
+        to: accounts.Id
+        also: ["txn.Entity = accounts.Entity"]
+    """
+    ft, fc = _split_ref(r["from"])
+    tt, tc = _split_ref(r["to"])
+    pairs = [(fc, tc)]
+    for extra in r.get("also", []):
+        if "=" not in extra:
+            raise ValueError(f"'also' join must be 'table.col = table.col': {extra!r}")
+        left, right = (s.strip() for s in extra.split("=", 1))
+        lt, lc = _split_ref(left)
+        rt, rc = _split_ref(right)
+        if {lt, rt} != {ft, tt}:
+            raise ValueError(
+                f"'also' join {extra!r} must reference tables {ft!r} and {tt!r}"
+            )
+        # normalize so the pair is (from_column, to_column)
+        pairs.append((lc, rc) if lt == ft else (rc, lc))
+    return Relationship(from_table=ft, to_table=tt, column_pairs=pairs)
 
 
 def load_model(path: str | Path) -> SemanticModel:
@@ -155,17 +210,14 @@ def build_model(data: dict) -> SemanticModel:
             name=t["name"],
             table=t.get("table", t["name"]),
             description=t.get("description", ""),
-            primary_key=t.get("primary_key"),
+            primary_key=_as_list(t.get("primary_key")),
+            keys=_as_list(t.get("keys")),
             grain=t.get("grain", ""),
         )
         for t in data.get("tables", [])
     ]
 
-    relationships = []
-    for r in data.get("relationships", []):
-        ft, fc = _split_ref(r["from"])
-        tt, tc = _split_ref(r["to"])
-        relationships.append(Relationship(ft, fc, tt, tc))
+    relationships = [_build_relationship(r) for r in data.get("relationships", [])]
 
     dimensions = [
         Dimension(
@@ -232,22 +284,24 @@ def _validate(model: SemanticModel) -> None:
             raise ValueError(f"metric {m.name!r} references unknown table {m.table!r}")
 
     for r in model.relationships:
-        for tname, col in ((r.from_table, r.from_column), (r.to_table, r.to_column)):
+        for tname in (r.from_table, r.to_table):
             if tname not in table_names:
                 raise ValueError(f"relationship references unknown table {tname!r}")
-            # the column must be declared as a dim/fact/pk on that table
-            if col not in _declared_cols(model, tname):
-                raise ValueError(
-                    f"relationship column {tname}.{col} is not declared on the table"
-                )
+        # every join column must be declared as a dim/fact/pk on its table
+        for fc, tc in r.column_pairs:
+            for tname, col in ((r.from_table, fc), (r.to_table, tc)):
+                if col not in _declared_cols(model, tname):
+                    raise ValueError(
+                        f"relationship column {tname}.{col} is not declared on the table"
+                    )
 
 
 def _declared_cols(model: SemanticModel, table_name: str) -> set[str]:
     cols = {d.column for d in model.dimensions if d.table == table_name}
     cols |= {f.column for f in model.facts if f.table == table_name}
     t = model.table(table_name)
-    if t.primary_key:
-        cols.add(t.primary_key)
+    cols |= set(t.primary_key)
+    cols |= set(t.keys)
     return cols
 
 

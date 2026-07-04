@@ -37,12 +37,22 @@ the raw/journal tables, not here.
 
 | From | To | On |
 |---|---|---|
-| `qbo_txn_consolidated.AccountID` | `qbo_accounts.Id` | account master |
+| `qbo_txn_consolidated.AccountID` **+ `Entity`** | `qbo_accounts.Id` **+ `Entity`** | account master (**composite**) |
 | `qbo_txn_consolidated.Account_Number` | `hierarchy_by_account.AcctNum` | P&L rollup (Lvl1–3) |
 | `qbo_txn_consolidated.Class` | `hierarchy_by_class.Class` | department rollup |
 
 These are encoded in `relationships:` in `models/qbo.yml` and verified against
 real data later. The seeder generates data that honors them.
+
+**Composite account join.** An account `Id` is only unique *within* a company,
+so `txn → qbo_accounts` matches on `AccountID` **and** `Entity` — the upstream
+ETL joins on `AccountID+Entity` for the same reason. The engine supports this
+via multi-column relationships (`also:` in the YAML), which compile to an
+`AND`-ed `ON` clause. The seeder deliberately reuses account `Id`s 1–7 across
+both companies (14 rows), so a single-column join would double revenue to
+192,000; the composite key keeps it correct at 96,000. The account-hierarchy and
+class rollups have no `Entity` column (a shared chart of accounts), so those
+joins stay single-column.
 
 ## Sign / amount convention (POC choice)
 

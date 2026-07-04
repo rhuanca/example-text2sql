@@ -8,6 +8,7 @@ tables:
   - name: txn
     table: qbo_txn_consolidated
     grain: "one GL posting line (one transaction line hitting one account)"
+    keys: [AccountID, Account_Number, Num]  # join keys + transaction id
     description: >
       Consolidated Transaction Detail by Account across all entities and
       transaction types. Amount is a signed value stored as text; the compiler
@@ -16,12 +17,13 @@ tables:
   - name: invoices
     table: qbo_invoices
     grain: "one invoice line"
+    keys: [Entity]  # shared multi-base group-by key with txn
     description: >
       A/R sales invoice lines. Aggregate separately from txn and join on Entity
       for invoiced-vs-posted comparisons (the fan-out guard).
   - name: accounts
     table: qbo_accounts
-    primary_key: Id
+    primary_key: [Id, Entity]   # composite: an account Id is unique only within a company
     description: >
       Chart of accounts master. One row per account. Carries Classification
       (Revenue/Expense/Asset/Liability/Equity) and account type/subtype.
@@ -39,7 +41,13 @@ tables:
       Class -> Department -> DepartmentCategory rollup. Join key from txn: Class.
 
 relationships:
-  - { from: txn.AccountID, to: accounts.Id }
+  # Composite join: an account Id is only unique *within* a company, so the
+  # consolidated ledger must match on AccountID AND Entity. The upstream ETL
+  # joins qbo_accounts on AccountID+Entity for the same reason.
+  - from: txn.AccountID
+    to: accounts.Id
+    also:
+      - txn.Entity = accounts.Entity
   - { from: txn.Account_Number, to: acct_hier.AcctNum }
   - { from: txn.Class, to: class_hier.Class }
 
@@ -55,7 +63,7 @@ dimensions:
       synonyms: [quarter, qtr] }
   - { table: txn, name: entity, column: Entity,
       synonyms: [company, legal entity, subsidiary, book],
-      sample_values: ["Coffee US", "Coffee EU"] }
+      sample_values: ["Northwind Inc.", "Contoso SAS"] }
   - { table: txn, name: transaction_type, column: TransactionType,
       synonyms: [txn type, type, transaction kind],
       sample_values: ["Invoice", "Bill", "Expense"] }
@@ -106,17 +114,10 @@ dimensions:
       synonyms: [invoice class] }
 
 facts:
-  # ---- txn measures + join keys ----
+  # Measures only. Join/identity keys live on the tables (primary_key / keys).
   - { table: txn, name: amount, column: Amount }
-  - { table: txn, name: txn_num, column: Num }            # transaction id for distinct counts
-  - { table: txn, name: txn_account_id, column: AccountID }        # join key -> accounts.Id
-  - { table: txn, name: txn_account_number, column: Account_Number }  # join key -> acct_hier.AcctNum
-  # ---- invoices measures + shared key ----
   - { table: invoices, name: invoice_line_amount, column: Amount }
   - { table: invoices, name: invoice_qty, column: SalesItemLineDetail_Qty }
-  # Entity declared on invoices so it is a shared multi-base group-by key with txn
-  # (mirrors budget_store_id in the sales model).
-  - { table: invoices, name: invoice_entity, column: Entity }
 
 metrics:
   - name: total_amount

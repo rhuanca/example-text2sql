@@ -85,7 +85,7 @@ def model_to_dot(model: SemanticModel) -> str:
         label = _node_label(model, t, kinds[t.name])
         lines.append(f"  {t.name} [label={label}];")
     for r in model.relationships:
-        join = f"{r.from_column} = {r.to_column}"
+        join = " AND ".join(f"{fc} = {tc}" for fc, tc in r.column_pairs)
         lines.append(
             f'  {r.from_table} -> {r.to_table} '
             f'[label="{_esc(join)}", fontsize=9, arrowhead=none];'

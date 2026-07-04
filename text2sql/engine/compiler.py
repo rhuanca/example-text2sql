@@ -86,13 +86,15 @@ def _compile_single(ir, model, dialect, metrics, dims):
 
 def _join_clause(qi, model, base, other, rel):
     other_phys = qi(model.table(other).table)
-    if rel.from_table == base:
-        left = f"{qi(model.table(base).table)}.{qi(rel.from_column)}"
-        right = f"{other_phys}.{qi(rel.to_column)}"
-    else:
-        left = f"{qi(model.table(base).table)}.{qi(rel.to_column)}"
-        right = f"{other_phys}.{qi(rel.from_column)}"
-    return f"JOIN {other_phys} ON {left} = {right}"
+    base_phys = qi(model.table(base).table)
+    conds = []
+    for from_col, to_col in rel.column_pairs:
+        # base may sit on either side of the declared relationship
+        base_col, other_col = (
+            (from_col, to_col) if rel.from_table == base else (to_col, from_col)
+        )
+        conds.append(f"{base_phys}.{qi(base_col)} = {other_phys}.{qi(other_col)}")
+    return f"JOIN {other_phys} ON {' AND '.join(conds)}"
 
 
 # ----------------------------------------------------------------------------

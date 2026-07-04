@@ -105,7 +105,37 @@ class TestResults(QboCase):
             {"metrics": ["transaction_count"], "dimensions": ["entity"]}
         )
         # 7 accounts x 6 months = 42 distinct transactions per entity
-        self.assertEqual(dict(rows), {"Coffee US": 42, "Coffee EU": 42})
+        self.assertEqual(dict(rows), {"Northwind Inc.": 42, "Contoso SAS": 42})
+
+
+class TestCompositeJoin(QboCase):
+    def test_join_ands_both_key_columns(self):
+        sql, _ = self.run_ir(
+            {
+                "metrics": ["total_amount"],
+                "dimensions": ["classification"],
+            }
+        )
+        self.assertIn(
+            '"qbo_txn_consolidated"."AccountID" = "qbo_accounts"."Id"', sql
+        )
+        self.assertIn(
+            '"qbo_txn_consolidated"."Entity" = "qbo_accounts"."Entity"', sql
+        )
+        self.assertIn(" AND ", sql)
+
+    def test_composite_join_does_not_double_count(self):
+        # Ids 1..7 are reused across both companies (14 account rows). Matching
+        # on AccountID alone would join each txn line to 2 accounts and double
+        # revenue to 192000; the Entity half of the key keeps it at 96000.
+        _, rows = self.run_ir(
+            {
+                "metrics": ["total_amount"],
+                "dimensions": [],
+                "filters": [{"field": "classification", "op": "=", "value": "Revenue"}],
+            }
+        )
+        self.assertEqual(rows, [(96000.0,)])
 
 
 class TestFanOutGuard(QboCase):
@@ -121,8 +151,8 @@ class TestFanOutGuard(QboCase):
         self.assertIn("agg_txn", sql)
         self.assertIn("agg_invoices", sql)
         by_entity = {r[0]: (r[1], r[2]) for r in rows}
-        self.assertEqual(by_entity["Coffee US"], (6480.0, 108000.0))
-        self.assertEqual(by_entity["Coffee EU"], (3888.0, 64800.0))
+        self.assertEqual(by_entity["Northwind Inc."], (6480.0, 108000.0))
+        self.assertEqual(by_entity["Contoso SAS"], (3888.0, 64800.0))
 
 
 if __name__ == "__main__":

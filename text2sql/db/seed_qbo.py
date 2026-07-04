@@ -18,14 +18,15 @@ DEFAULT_DB = "demo_qbo.db"
 
 SCHEMA = """
 CREATE TABLE qbo_accounts (
-    Id             TEXT PRIMARY KEY,
+    Id             TEXT,
     Name           TEXT,
     Classification TEXT,
     AccountType    TEXT,
     AccountSubType TEXT,
     AcctNum        TEXT,
     CurrentBalance REAL,
-    Entity         TEXT
+    Entity         TEXT,
+    PRIMARY KEY (Id, Entity)   -- an account Id is only unique within a company
 );
 
 CREATE TABLE hierarchy_by_account (
@@ -114,7 +115,7 @@ CLASSES = [
     ("Online", "E-Commerce", "Sales"),
 ]
 
-ENTITIES = [("Coffee US", 1.0), ("Coffee EU", 0.6)]
+ENTITIES = [("Northwind Inc.", 1.0), ("Contoso SAS", 0.6)]
 MONTHS = [1, 2, 3, 4, 5, 6]
 
 CUSTOMERS = ["Acme Corp", "Globex", "Initech"]
@@ -138,8 +139,12 @@ ITEMS = [("Espresso Beans", 24.0), ("Cold Brew Kit", 40.0), ("Mug", 12.0)]
 def _build_rows():
     accounts_rows, txn_rows, invoice_rows = [], [], []
 
-    for aid, acctnum, name, classn, atype, asub, base in ACCOUNTS:
-        accounts_rows.append((aid, name, classn, atype, asub, acctnum, base, "Coffee US"))
+    # Each company has its own chart of accounts; Ids collide across companies,
+    # so the same Id means a different account per Entity. This is exactly why
+    # the txn -> accounts join must be composite (AccountID + Entity).
+    for entity, _ in ENTITIES:
+        for aid, acctnum, name, classn, atype, asub, base in ACCOUNTS:
+            accounts_rows.append((aid, name, classn, atype, asub, acctnum, base, entity))
 
     hier_acct_rows = [
         (acctnum, acctnm, f"{acctnum} {acctnm}", l1, l2, l3)
