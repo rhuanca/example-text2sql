@@ -9,10 +9,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-# Dimension names that represent an ordered/time axis -> line chart.
-TIME_LIKE = {
-    "date", "day", "week", "month", "quarter", "year",
-    "iso_week", "iso_year", "iso_day_count", "week_start_date",
+# Tokens that mark a dimension as an ordered/time axis -> line chart. Matched
+# per underscore-delimited token, so model-prefixed names like `txn_month` or
+# `invoice_week` are recognized, not just the bare `month`/`week`.
+TIME_TOKENS = {
+    "date", "day", "week", "month", "quarter", "year", "time",
 }
 
 
@@ -25,7 +26,7 @@ class ChartSpec:
 
 
 def is_time_like(dim_name: str) -> bool:
-    return dim_name in TIME_LIKE
+    return any(tok in TIME_TOKENS for tok in dim_name.lower().split("_"))
 
 
 def _distinct_count(name: str, columns: list[str], rows: list) -> int:

@@ -56,6 +56,33 @@ class TestChooseChart(unittest.TestCase):
         self.assertEqual(spec.x, "iso_week")
         self.assertEqual(spec.series, "market")
 
+    def test_prefixed_time_dim_is_line(self):
+        # QBO model names its time dims txn_month / txn_year (not bare "month")
+        cols = ["txn_month", "total_amount"]
+        rows = [(1, 12800.0), (2, 14080.0), (3, 15360.0)]
+        spec = choose_chart(ir(["total_amount"], ["txn_month"]), cols, rows)
+        self.assertEqual(spec.kind, "line")
+        self.assertEqual(spec.x, "txn_month")
+
+    def test_expenses_and_income_by_month_is_multiseries_line(self):
+        # the reported case: total_amount by txn_year, txn_month, classification.
+        # txn_year is constant (dropped); month is the time axis, classification
+        # the series -> a two-line chart, not a table.
+        cols = ["txn_year", "txn_month", "classification", "total_amount"]
+        rows = [
+            (2026, 1, "Expense", 10240.0), (2026, 1, "Revenue", 12800.0),
+            (2026, 2, "Expense", 11264.0), (2026, 2, "Revenue", 14080.0),
+            (2026, 3, "Expense", 12288.0), (2026, 3, "Revenue", 15360.0),
+        ]
+        spec = choose_chart(
+            ir(["total_amount"], ["txn_year", "txn_month", "classification"]),
+            cols,
+            rows,
+        )
+        self.assertEqual(spec.kind, "line")
+        self.assertEqual(spec.x, "txn_month")
+        self.assertEqual(spec.series, "classification")
+
     def test_two_categorical_dims_is_table(self):
         cols = ["market", "category_name", "total_net_sales"]
         rows = [
