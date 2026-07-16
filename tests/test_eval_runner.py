@@ -30,7 +30,7 @@ class _PlannerFromRules:
         self.by_question = by_question
         self.override = override or {}
 
-    def plan(self, question, model, error=None):
+    def plan(self, question, model, error=None, history=None):
         if question in self.override:
             return SemanticQuery.from_dict(self.override[question])
         return SemanticQuery.from_dict(self.by_question[question])

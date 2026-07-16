@@ -128,7 +128,7 @@ class _ComparePlanner:
     def __init__(self, cmp):
         self.cmp = cmp
 
-    def plan(self, question, model, error=None):
+    def plan(self, question, model, error=None, history=None):
         return self.cmp
 
 

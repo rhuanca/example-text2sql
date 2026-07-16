@@ -1,0 +1,28 @@
+{
+  "diagrams": {
+    "memory-flow": {
+      "title": "Conversation memory — one follow-up turn",
+      "subtitle": "Prior (question, IR) pairs are fed to the planner; the LLM still only emits IR, never SQL",
+      "graph": "flowchart TB\n  U[\"User asks a follow-up<br/>('only for 2026')\"]:::person\n  SS[(\"st.session_state.history<br/>render log\")]:::store\n  RT[\"recent_turns(history, limit=4)<br/>answered turns only · IR not rows\"]:::app\n  ASK[\"Engine.ask(question, history)<br/>forwards history on every retry\"]:::app\n  PLAN[\"AnthropicPlanner.plan(…, history)\"]:::app\n  HB[\"_history_block()<br/>prepended to the user message\"]:::app\n  LLM[\"Anthropic client (wrapped)<br/>tool call → emit_query | emit_comparison\"]:::ext\n  CMP[\"validate_ir + compile + execute<br/>deterministic\"]:::app\n  DB[(\"SQLite\")]:::store\n  RES[\"Result(ir, sql, params, rows)\"]:::focal\n  U --> RT\n  SS -- \"answered turns\" --> RT\n  RT -- \"[{question, ir}]\" --> ASK\n  ASK --> PLAN\n  PLAN --> HB\n  HB -- \"CONVERSATION SO FAR + question\" --> LLM\n  LLM -- \"IR — never SQL\" --> CMP\n  CMP --> DB\n  DB -- \"columns, rows\" --> CMP\n  CMP --> RES\n  RES -- \"append; becomes next turn's memory\" --> SS",
+      "legend": [
+        ["person", "User"],
+        ["app", "Our code (app + engine, deterministic)"],
+        ["ext", "Anthropic LLM (emits IR only)"],
+        ["store", "Data store / session state"],
+        ["focal", "Result returned to the UI"]
+      ]
+    },
+    "memory-callpath": {
+      "title": "Conversation memory — call path",
+      "subtitle": "Who owns what across chat/app.py and engine/",
+      "graph": "flowchart LR\n  subgraph UI[\"chat/app.py — per session\"]\n    H[(\"session_state.history\")]:::store\n    RT[\"recent_turns()<br/>pure · cap 4 · skip errors\"]:::app\n    H --> RT\n  end\n  subgraph ENG[\"engine/\"]\n    ASK[\"Engine.ask(question, history)\"]:::app\n    PLAN[\"AnthropicPlanner.plan(…, history)\"]:::app\n    HB[\"_history_block()\"]:::app\n    ASK --> PLAN\n    PLAN --> HB\n  end\n  RT -- \"[{question, ir}]\" --> ASK\n  HB -- \"prepended to user msg\" --> LLM[\"Anthropic → IR\"]:::ext\n  LLM --> CMP[\"validate + compile + execute\"]:::app\n  CMP -- \"Result\" --> H",
+      "boundaries": { "UI": "system", "ENG": "system" },
+      "legend": [
+        ["app", "Our code (deterministic)"],
+        ["ext", "Anthropic LLM"],
+        ["store", "Session state / DB"],
+        ["dash", "Module boundary"]
+      ]
+    }
+  }
+}

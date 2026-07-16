@@ -88,6 +88,22 @@ def to_frame(columns: list[str], rows: list) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=columns)
 
 
+def recent_turns(history: list, limit: int = 4) -> list:
+    """Extract the last `limit` answered turns from the chat history as
+    {"question", "ir"} pairs, for the planner's short-term memory. Only turns
+    that produced a result count (error turns carry no IR to build on); the
+    question is the user message immediately preceding each assistant answer."""
+    turns = []
+    pending_q = None
+    for msg in history:
+        if msg["role"] == "user":
+            pending_q = msg["text"]
+        elif msg["role"] == "assistant" and msg.get("result") is not None and pending_q:
+            turns.append({"question": pending_q, "ir": msg["result"].ir.to_dict()})
+            pending_q = None
+    return turns[-limit:]
+
+
 def chart_frame(spec: ChartSpec, columns: list[str], rows: list) -> pd.DataFrame:
     """Frame shaped for st.line_chart / st.bar_chart (indexed by x)."""
     df = to_frame(columns, rows)
@@ -247,13 +263,16 @@ def main():
                 _render_assistant(st, msg)
 
     if prompt := st.chat_input(ds.placeholder):
+        # Prior turns become the planner's short-term memory (before we append
+        # the current prompt, so it isn't fed back to itself).
+        history = recent_turns(st.session_state.history)
         st.session_state.history.append({"role": "user", "text": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
         with st.chat_message("assistant"):
             try:
                 with st.spinner("Thinking…"):
-                    result = engine.ask(prompt)
+                    result = engine.ask(prompt, history=history)
                     summary = safe_summarize(
                         summarizer, prompt, result.columns, result.rows
                     )

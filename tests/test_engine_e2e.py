@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from text2sql.db.seed import build_database
+from text2sql.db.seed import DIM_STORE, WEEKS, YEARS, build_database
 from text2sql.engine.dialects.sqlite import SqliteDialect
 from text2sql.engine.engine import Engine
 from text2sql.engine.executor import SqliteExecutor
@@ -35,7 +35,7 @@ class RulePlanner:
     def __init__(self, rules):
         self.rules = rules
 
-    def plan(self, question, model, error=None):
+    def plan(self, question, model, error=None, history=None):
         q = question.lower()
         for key, ir in self.rules:
             if key.lower() in q:
@@ -62,7 +62,8 @@ class TestEngineE2E(EngineCase):
     def test_dozen_glazed_question(self):
         engine = self.make_engine(RulePlanner(RULES))
         result = engine.ask("How is Cappuccino performing week over week?")
-        self.assertEqual(len(result.rows), 2)
+        # Cappuccino sells every week of every year -> one row per (year, week).
+        self.assertEqual(len(result.rows), len(YEARS) * len(WEEKS))
         self.assertIn("total_net_sales", result.columns)
         self.assertTrue(result.sql.lower().startswith("select"))
 
@@ -70,7 +71,7 @@ class TestEngineE2E(EngineCase):
         engine = self.make_engine(RulePlanner(RULES))
         result = engine.ask("Show budget vs actual by store")
         self.assertIn("total_budget", result.columns)
-        self.assertEqual(len(result.rows), 2)
+        self.assertEqual(len(result.rows), len(DIM_STORE))
 
 
 class FlakyPlanner:
@@ -79,7 +80,7 @@ class FlakyPlanner:
     def __init__(self, bad, good):
         self.bad, self.good = bad, good
 
-    def plan(self, question, model, error=None):
+    def plan(self, question, model, error=None, history=None):
         ir = self.good if error else self.bad
         return SemanticQuery.from_dict(ir)
 

@@ -22,7 +22,11 @@ class PlannerError(Exception):
 
 class Planner(Protocol):
     def plan(
-        self, question: str, model: SemanticModel, error: str | None = None
+        self,
+        question: str,
+        model: SemanticModel,
+        error: str | None = None,
+        history: list | None = None,
     ) -> SemanticQuery | Comparison:
         ...
 
@@ -93,6 +97,22 @@ def build_system_prompt(model: SemanticModel) -> str:
     return "\n".join(lines)
 
 
+def _history_block(history: list) -> str:
+    """Render prior turns as a compact block the planner can use to resolve
+    follow-ups. Each turn is {"question": str, "ir": dict} (the IR that turn
+    produced), most recent last. We carry the IR, not result rows: it is the
+    compact record of what was just computed and what a refinement builds on."""
+    lines = [
+        "CONVERSATION SO FAR (most recent last). Use it to resolve follow-up "
+        "questions like 'and for 2026' or 'break that down by class': carry over "
+        "the previous metrics/dimensions/filters unless the user changes them.",
+    ]
+    for turn in history:
+        lines.append(f"Q: {turn['question']}")
+        lines.append(f"IR: {json.dumps(turn['ir'])}")
+    return "\n".join(lines)
+
+
 class AnthropicPlanner:
     """LLM planner backed by the Anthropic API. The model output is constrained
     to the IR JSON schema via a forced tool call, so it can only return a valid
@@ -120,13 +140,15 @@ class AnthropicPlanner:
                 client = wrap_anthropic(client)
         self.client = client
 
-    def plan(self, question, model, error=None) -> SemanticQuery:
+    def plan(self, question, model, error=None, history=None) -> SemanticQuery:
         content = question
         if error:
             content += (
                 f"\n\nA previous attempt failed with: {error}\n"
                 "Return a corrected query that avoids this error."
             )
+        if history:
+            content = f"{_history_block(history)}\n\nCurrent question: {content}"
         resp = self.client.messages.create(
             model=self.model,
             max_tokens=self.max_tokens,

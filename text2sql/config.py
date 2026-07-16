@@ -9,7 +9,7 @@ import os
 from dotenv import load_dotenv
 
 # Load .env from the nearest parent directory, without overriding real env vars.
-load_dotenv(override=False)
+load_dotenv(override=True)
 
 DEFAULT_MODEL = "claude-opus-4-8"
 
