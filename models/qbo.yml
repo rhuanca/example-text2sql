@@ -61,6 +61,8 @@ dimensions:
       synonyms: [month] }
   - { table: txn, name: txn_quarter, column: Quarter, type: number,
       synonyms: [quarter, qtr] }
+  - { table: txn, name: week_number, column: Week, type: number,
+      synonyms: [week, week number, week of year] }
   - { table: txn, name: entity, column: Entity,
       synonyms: [company, legal entity, subsidiary, book],
       sample_values: ["Northwind Inc.", "Contoso SAS"] }

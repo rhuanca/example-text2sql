@@ -8,9 +8,11 @@ implementation.
 from __future__ import annotations
 
 import json
+import os
 from typing import Protocol
 
 from ..semantic.model import SemanticModel
+from .compare import COMPARISON_JSON_SCHEMA, Comparison
 from .ir import IR_JSON_SCHEMA, SemanticQuery
 
 
@@ -21,13 +23,18 @@ class PlannerError(Exception):
 class Planner(Protocol):
     def plan(
         self, question: str, model: SemanticModel, error: str | None = None
-    ) -> SemanticQuery:
+    ) -> SemanticQuery | Comparison:
         ...
 
 
 _TOOL_DESC = (
     "Emit the structured query for the user's question. Use ONLY the metrics and "
     "dimensions defined in the semantic model. Never invent field names."
+)
+
+_COMPARE_DESC = (
+    "Emit a period comparison: the same metric across two or more periods, shown "
+    "side by side (one column per period). Use ONLY names from the semantic model."
 )
 
 
@@ -61,6 +68,21 @@ def build_system_prompt(model: SemanticModel) -> str:
         "- For 'last N days' style ranges use the time window (a date dimension + last_n_days).",
         "- Filters compare a dimension to a value with one of: "
         "=, !=, <, <=, >, >=, in, not in, like.",
+        "",
+        "PERIOD COMPARISON:",
+        "- If the user asks to COMPARE a metric across two or more periods side by "
+        "side (e.g. 'compare revenue for Jan-Mar between 2025 and 2026', "
+        "'this year vs last year by month'), call emit_comparison instead of "
+        "emit_query, with:",
+        "  - metric: the measure to compare",
+        "  - split_by: the dimension for the rows (the finer time bucket, e.g. a "
+        "month or week dimension)",
+        "  - period_field: the dimension whose values are the periods being "
+        "compared (e.g. a year dimension)",
+        "  - periods: the list of period values, one column each (e.g. [2025, 2026])",
+        "  - filters: any other constraints (e.g. classification = Revenue, or "
+        "restricting the split_by to the requested buckets)",
+        "- Otherwise, use emit_query for a normal single-answer question.",
     ]
     if model.examples:
         lines.append("")
@@ -88,6 +110,14 @@ class AnthropicPlanner:
             import anthropic
 
             client = anthropic.Anthropic(api_key=key)
+            # Optional LangSmith tracing: wraps the client so every
+            # messages.create (system prompt, tools, tool_choice, messages, and
+            # the response) is logged. No-op unless LANGSMITH_TRACING is set, so
+            # langsmith stays an optional dependency.
+            if os.environ.get("LANGSMITH_TRACING", "").lower() in ("1", "true"):
+                from langsmith.wrappers import wrap_anthropic
+
+                client = wrap_anthropic(client)
         self.client = client
 
     def plan(self, question, model, error=None) -> SemanticQuery:
@@ -106,12 +136,22 @@ class AnthropicPlanner:
                     "name": "emit_query",
                     "description": _TOOL_DESC,
                     "input_schema": IR_JSON_SCHEMA,
-                }
+                },
+                {
+                    "name": "emit_comparison",
+                    "description": _COMPARE_DESC,
+                    "input_schema": COMPARISON_JSON_SCHEMA,
+                },
             ],
-            tool_choice={"type": "tool", "name": "emit_query"},
+            # let the model choose emit_query vs emit_comparison, but require one
+            tool_choice={"type": "any"},
             messages=[{"role": "user", "content": content}],
         )
         for block in resp.content:
-            if getattr(block, "type", None) == "tool_use" and block.name == "emit_query":
+            if getattr(block, "type", None) != "tool_use":
+                continue
+            if block.name == "emit_query":
                 return SemanticQuery.from_dict(block.input)
-        raise PlannerError("planner did not return an emit_query tool call")
+            if block.name == "emit_comparison":
+                return Comparison.from_dict(block.input)
+        raise PlannerError("planner did not return a query or comparison tool call")

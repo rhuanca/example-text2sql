@@ -18,6 +18,7 @@ from text2sql.semantic.model import load_model
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MODEL_PATH = REPO_ROOT / "models" / "qbo.yml"
 CASES_PATH = REPO_ROOT / "eval" / "cases_qbo.yml"
+VERIFIED_PATH = REPO_ROOT / "eval" / "verified_qbo.yml"
 
 
 class QboCase(unittest.TestCase):
@@ -39,6 +40,14 @@ class QboCase(unittest.TestCase):
         conn = sqlite3.connect(self.db)
         try:
             return sql, conn.execute(sql, params).fetchall()
+        finally:
+            conn.close()
+
+    def raw(self, sql, params=()):
+        """Query the seeded tables directly, for data-derived expectations."""
+        conn = sqlite3.connect(self.db)
+        try:
+            return conn.execute(sql, params).fetchall()
         finally:
             conn.close()
 
@@ -80,7 +89,7 @@ class TestEvalCasesCompile(QboCase):
 
 
 class TestResults(QboCase):
-    def test_total_revenue(self):
+    def test_total_revenue_matches_raw(self):
         _, rows = self.run_ir(
             {
                 "metrics": ["total_amount"],
@@ -88,9 +97,14 @@ class TestResults(QboCase):
                 "filters": [{"field": "classification", "op": "=", "value": "Revenue"}],
             }
         )
-        self.assertEqual(rows, [(96000.0,)])
+        expected = self.raw(
+            "SELECT SUM(CAST(t.Amount AS REAL)) FROM qbo_txn_consolidated t "
+            "JOIN qbo_accounts a ON t.AccountID = a.Id AND t.Entity = a.Entity "
+            "WHERE a.Classification = 'Revenue'"
+        )[0][0]
+        self.assertAlmostEqual(rows[0][0], expected, places=2)
 
-    def test_spend_with_vendor_matches_cogs(self):
+    def test_spend_with_vendor_matches_raw(self):
         _, rows = self.run_ir(
             {
                 "metrics": ["total_amount"],
@@ -98,14 +112,50 @@ class TestResults(QboCase):
                 "filters": [{"field": "vendor", "op": "=", "value": "Sysco"}],
             }
         )
-        self.assertEqual(rows, [(21600.0,)])
+        expected = self.raw(
+            "SELECT SUM(CAST(Amount AS REAL)) FROM qbo_txn_consolidated WHERE Vendor = 'Sysco'"
+        )[0][0]
+        self.assertAlmostEqual(rows[0][0], expected, places=2)
 
-    def test_transactions_per_entity(self):
+    def test_transactions_per_entity_matches_raw(self):
         _, rows = self.run_ir(
             {"metrics": ["transaction_count"], "dimensions": ["entity"]}
         )
-        # 7 accounts x 6 months = 42 distinct transactions per entity
-        self.assertEqual(dict(rows), {"Northwind Inc.": 42, "Contoso SAS": 42})
+        got = dict(rows)
+        expected = dict(
+            self.raw(
+                "SELECT Entity, COUNT(DISTINCT Num) FROM qbo_txn_consolidated GROUP BY Entity"
+            )
+        )
+        self.assertEqual(got, expected)
+        # symmetric generation -> both companies have the same count
+        self.assertEqual(len(got), 2)
+        self.assertEqual(len(set(got.values())), 1)
+
+
+class TestData(QboCase):
+    def test_spans_two_years(self):
+        years = [r[0] for r in self.raw(
+            "SELECT DISTINCT Year FROM qbo_txn_consolidated ORDER BY Year"
+        )]
+        self.assertEqual(years, [2025, 2026])
+
+    def test_weekly_grain_present(self):
+        lo, hi = self.raw("SELECT MIN(Week), MAX(Week) FROM qbo_txn_consolidated")[0]
+        self.assertEqual((lo, hi), (1, 52))
+
+    def test_volume_is_a_few_thousand_rows(self):
+        n = self.raw("SELECT COUNT(*) FROM qbo_txn_consolidated")[0][0]
+        self.assertGreaterEqual(n, 4000)
+
+    def test_revenue_grows_year_over_year(self):
+        rows = self.raw(
+            "SELECT t.Year, SUM(CAST(t.Amount AS REAL)) FROM qbo_txn_consolidated t "
+            "JOIN qbo_accounts a ON t.AccountID = a.Id AND t.Entity = a.Entity "
+            "WHERE a.Classification = 'Revenue' GROUP BY t.Year ORDER BY t.Year"
+        )
+        by_year = dict(rows)
+        self.assertGreater(by_year[2026], by_year[2025])
 
 
 class TestCompositeJoin(QboCase):
@@ -125,9 +175,9 @@ class TestCompositeJoin(QboCase):
         self.assertIn(" AND ", sql)
 
     def test_composite_join_does_not_double_count(self):
-        # Ids 1..7 are reused across both companies (14 account rows). Matching
-        # on AccountID alone would join each txn line to 2 accounts and double
-        # revenue to 192000; the Entity half of the key keeps it at 96000.
+        # Account Ids are reused across both companies, so joining on AccountID
+        # alone matches each txn line to BOTH entities' accounts and doubles the
+        # total. The composite key (AccountID + Entity) keeps it 1:1.
         _, rows = self.run_ir(
             {
                 "metrics": ["total_amount"],
@@ -135,7 +185,14 @@ class TestCompositeJoin(QboCase):
                 "filters": [{"field": "classification", "op": "=", "value": "Revenue"}],
             }
         )
-        self.assertEqual(rows, [(96000.0,)])
+        composite = rows[0][0]
+        naive = self.raw(
+            "SELECT SUM(CAST(t.Amount AS REAL)) FROM qbo_txn_consolidated t "
+            "JOIN qbo_accounts a ON t.AccountID = a.Id "  # no Entity -> fan-out
+            "WHERE a.Classification = 'Revenue'"
+        )[0][0]
+        # two entities share the ids, so the naive join doubles the composite total
+        self.assertAlmostEqual(naive, composite * 2, places=2)
 
 
 class TestFanOutGuard(QboCase):
@@ -151,8 +208,44 @@ class TestFanOutGuard(QboCase):
         self.assertIn("agg_txn", sql)
         self.assertIn("agg_invoices", sql)
         by_entity = {r[0]: (r[1], r[2]) for r in rows}
-        self.assertEqual(by_entity["Northwind Inc."], (6480.0, 108000.0))
-        self.assertEqual(by_entity["Contoso SAS"], (3888.0, 64800.0))
+        # each fact is aggregated in its own subquery (no fan-out), so the
+        # per-entity totals match the raw per-entity sums of each table
+        for entity, (invoiced, posted) in by_entity.items():
+            exp_inv = self.raw(
+                "SELECT SUM(CAST(Amount AS REAL)) FROM qbo_invoices WHERE Entity = ?",
+                (entity,),
+            )[0][0]
+            exp_txn = self.raw(
+                "SELECT SUM(CAST(Amount AS REAL)) FROM qbo_txn_consolidated WHERE Entity = ?",
+                (entity,),
+            )[0][0]
+            self.assertAlmostEqual(invoiced, exp_inv, places=2)
+            self.assertAlmostEqual(posted, exp_txn, places=2)
+
+
+class TestVerifiedQueries(QboCase):
+    def _verified(self):
+        import yaml
+
+        data = yaml.safe_load(VERIFIED_PATH.read_text())
+        return {q["id"]: q for q in data["verified_queries"]}
+
+    def test_revenue_year_pivot(self):
+        q = self._verified()["revenue-jan-feb-mar-2025-vs-2026"]
+        conn = sqlite3.connect(self.db)
+        try:
+            cur = conn.execute(q["sql"])
+            cols = [d[0] for d in cur.description]
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+        # one revenue column per year, one row per requested month
+        self.assertEqual(cols, ["month", "revenue_2025", "revenue_2026"])
+        self.assertEqual([r[0] for r in rows], ["Jan", "Feb", "Mar"])
+        # both years present and non-zero, and each month grew YoY (~12% in the seed)
+        for _month, rev25, rev26 in rows:
+            self.assertGreater(rev25, 0)
+            self.assertGreater(rev26, rev25)
 
 
 if __name__ == "__main__":

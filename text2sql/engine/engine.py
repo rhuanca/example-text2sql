@@ -7,6 +7,7 @@ import sqlite3
 from dataclasses import dataclass
 
 from ..semantic.model import SemanticModel
+from .compare import Comparison, compile_comparison, validate_comparison
 from .compiler import CompileError, compile
 from .dialects.base import Dialect
 from .ir import SemanticQuery
@@ -19,7 +20,7 @@ _RECOVERABLE = (ValidationError, CompileError, KeyError, sqlite3.Error)
 @dataclass
 class Result:
     question: str
-    ir: SemanticQuery
+    ir: SemanticQuery | Comparison  # the plan: a normal query or a period comparison
     sql: str
     params: list
     columns: list
@@ -49,13 +50,17 @@ class Engine:
         error: str | None = None
         last_exc: Exception | None = None
         for _ in range(self.max_retries + 1):
-            ir = self.planner.plan(question, self.model, error=error)
+            plan = self.planner.plan(question, self.model, error=error)
             try:
-                validate_ir(ir, self.model)
-                sql, params = compile(ir, self.model, self.dialect)
+                if isinstance(plan, Comparison):
+                    validate_comparison(plan, self.model)
+                    sql, params = compile_comparison(plan, self.model, self.dialect)
+                else:
+                    validate_ir(plan, self.model)
+                    sql, params = compile(plan, self.model, self.dialect)
                 validate_sql(sql)
                 columns, rows = self.executor.run(sql, params)
-                return Result(question, ir, sql, params, columns, rows)
+                return Result(question, plan, sql, params, columns, rows)
             except _RECOVERABLE as e:
                 last_exc = e
                 error = f"{type(e).__name__}: {e}"

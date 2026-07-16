@@ -49,10 +49,16 @@ so `txn → qbo_accounts` matches on `AccountID` **and** `Entity` — the upstre
 ETL joins on `AccountID+Entity` for the same reason. The engine supports this
 via multi-column relationships (`also:` in the YAML), which compile to an
 `AND`-ed `ON` clause. The seeder deliberately reuses account `Id`s 1–7 across
-both companies (14 rows), so a single-column join would double revenue to
-192,000; the composite key keeps it correct at 96,000. The account-hierarchy and
-class rollups have no `Entity` column (a shared chart of accounts), so those
-joins stay single-column.
+both companies (14 rows), so a single-column join would match each txn line to
+both companies' accounts and **double** the total; the composite key keeps it
+1:1 (the test asserts the naive join is exactly 2× the composite one). The
+account-hierarchy and class rollups have no `Entity` column (a shared chart of
+accounts), so those joins stay single-column.
+
+**Data volume.** The seeder generates weekly rows across **two full years
+(2025–2026)** per entity × account × class — ~4.4k `qbo_txn_consolidated` lines
+plus ~600 `qbo_invoices` lines (~5k records) — with ~12% YoY growth and a mild
+seasonal wave, so week-over-week and year-over-year cuts show real movement.
 
 ## Sign / amount convention (POC choice)
 

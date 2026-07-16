@@ -37,6 +37,15 @@ def _distinct_count(name: str, columns: list[str], rows: list) -> int:
 
 
 def choose_chart(ir, columns: list[str], rows: list) -> ChartSpec:
+    # A period Comparison is wide (split_by + one metric column per period):
+    # grouped bar with the row bucket on x and each period as a series/column.
+    if hasattr(ir, "period_field"):
+        x = ir.split_by
+        y = [c for c in columns if c != x]
+        if not rows or not y:
+            return ChartSpec("table", y=y)
+        return ChartSpec("bar", x=x, y=y)
+
     metrics = [m for m in ir.metrics if m in columns]
 
     # No measures to plot, or nothing to plot against -> just the table.

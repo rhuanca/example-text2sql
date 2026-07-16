@@ -3,7 +3,7 @@ the qbo_finance model (models/qbo.yml). Deterministic (no randomness, no clock)
 so tests are reproducible.
 
 Mirrors the real QuickBooks Online export schema for the 5 modelled tables, plus
-ETL-derived Year/Month/Quarter helper columns (see specs/004-qbo-poc/domain.md).
+ETL-derived Year/Month/Quarter/Week helper columns (see specs/004-qbo-poc/domain.md).
 
 Run as a module to create ./demo_qbo.db:
     uv run python -m text2sql.db.seed_qbo
@@ -11,6 +11,8 @@ Run as a module to create ./demo_qbo.db:
 
 from __future__ import annotations
 
+import datetime
+import math
 import sqlite3
 from pathlib import Path
 
@@ -63,7 +65,8 @@ CREATE TABLE qbo_txn_consolidated (
     Entity            TEXT,
     Year              INTEGER,
     Month             INTEGER,
-    Quarter           INTEGER
+    Quarter           INTEGER,
+    Week              INTEGER
 );
 
 CREATE TABLE qbo_invoices (
@@ -116,7 +119,10 @@ CLASSES = [
 ]
 
 ENTITIES = [("Northwind Inc.", 1.0), ("Contoso SAS", 0.6)]
-MONTHS = [1, 2, 3, 4, 5, 6]
+YEARS = [2025, 2026]
+WEEKS = range(1, 53)  # 52 weeks per year -> two full years of weekly data
+YEAR_GROWTH = {2025: 1.0, 2026: 1.12}  # ~12% YoY growth so YoY comparisons move
+CLASS_WEIGHT = {"Retail": 1.0, "Wholesale": 0.8, "Online": 0.6}
 
 CUSTOMERS = ["Acme Corp", "Globex", "Initech"]
 VENDOR_BY_ACCTNUM = {
@@ -155,46 +161,52 @@ def _build_rows():
     n = 0
     pos = 0.0
     for entity, factor in ENTITIES:
-        for m in MONTHS:
-            quarter = (m - 1) // 3 + 1
-            date = f"2026-{m:02d}-15"
-            for idx, (aid, acctnum, name, classn, atype, asub, base) in enumerate(ACCOUNTS):
-                n += 1
-                pos += 1.0
-                amount = round(base * factor * (1.0 + 0.10 * (m - 1)), 2)
-                ttype, ttid = TXN_TYPE.get(acctnum, TXN_TYPE.get(classn, ("Journal", "JE")))
-                cls = CLASSES[(idx + m) % len(CLASSES)][0]
-                if classn == "Revenue":
-                    customer = CUSTOMERS[(idx + m) % len(CUSTOMERS)]
-                    vendor = ""
-                    party = customer
-                else:
-                    vendor = VENDOR_BY_ACCTNUM.get(acctnum, "General Vendor")
-                    customer = ""
-                    party = vendor
-                txn_rows.append((
-                    date, ttid, pos, ttype, f"T{n:04d}", aid, acctnum, name,
-                    vendor, customer, party, cls, f"{name} - {entity}",
-                    str(amount), entity, 2026, m, quarter,
-                ))
+        for year in YEARS:
+            for w in WEEKS:
+                d = datetime.date(year, 1, 1) + datetime.timedelta(days=(w - 1) * 7)
+                date = d.isoformat()
+                quarter = (d.month - 1) // 3 + 1
+                seasonal = 1.0 + 0.15 * math.sin(2.0 * math.pi * (w - 1) / 52.0)
+                for aid, acctnum, name, classn, atype, asub, base in ACCOUNTS:
+                    ttype, ttid = TXN_TYPE.get(acctnum, TXN_TYPE.get(classn, ("Journal", "JE")))
+                    if classn == "Revenue":
+                        customer = CUSTOMERS[(n + w) % len(CUSTOMERS)]
+                        vendor = ""
+                        party = customer
+                    else:
+                        vendor = VENDOR_BY_ACCTNUM.get(acctnum, "General Vendor")
+                        customer = ""
+                        party = vendor
+                    # one line per class each week -> volume + a real class split
+                    for cls, cw in CLASS_WEIGHT.items():
+                        n += 1
+                        pos += 1.0
+                        amount = round(base * factor * cw * YEAR_GROWTH[year] * seasonal, 2)
+                        txn_rows.append((
+                            date, ttid, pos, ttype, f"T{n:05d}", aid, acctnum, name,
+                            vendor, customer, party, cls, f"{name} - {entity}",
+                            str(amount), entity, year, d.month, quarter, w,
+                        ))
 
     inv_n = 0
     for entity, factor in ENTITIES:
-        for m in MONTHS:
-            inv_n += 1
-            inv_id = f"INV{inv_n:04d}"
-            date = f"2026-{m:02d}-20"
-            lines = []
-            for li, (item, price) in enumerate(ITEMS):
-                qty = round((10 + 5 * li) * factor)
-                lines.append((li + 1, item, qty, price, round(qty * price, 2)))
-            total = round(sum(l[4] for l in lines), 2)
-            for linenum, item, qty, price, line_amt in lines:
-                cls = CLASSES[(linenum + m) % len(CLASSES)][0]
-                invoice_rows.append((
-                    inv_id, float(linenum), line_amt, item, cls, float(qty), price,
-                    date, total, "IN", f"I{inv_n:04d}", entity, 2026, m,
-                ))
+        for year in YEARS:
+            for w in WEEKS:
+                d = datetime.date(year, 1, 1) + datetime.timedelta(days=(w - 1) * 7)
+                date = d.isoformat()
+                inv_n += 1
+                inv_id = f"INV{inv_n:05d}"
+                lines = []
+                for li, (item, price) in enumerate(ITEMS):
+                    qty = round((10 + 5 * li) * factor * YEAR_GROWTH[year])
+                    lines.append((li + 1, item, qty, price, round(qty * price, 2)))
+                total = round(sum(l[4] for l in lines), 2)
+                for linenum, item, qty, price, line_amt in lines:
+                    cls = CLASSES[(linenum + w) % len(CLASSES)][0]
+                    invoice_rows.append((
+                        inv_id, float(linenum), line_amt, item, cls, float(qty), price,
+                        date, total, "IN", f"I{inv_n:05d}", entity, year, d.month,
+                    ))
 
     return accounts_rows, hier_acct_rows, hier_class_rows, txn_rows, invoice_rows
 
@@ -210,7 +222,7 @@ def build_database(path: str | Path = DEFAULT_DB) -> str:
         conn.executemany("INSERT INTO hierarchy_by_account VALUES (?,?,?,?,?,?)", hier_acct)
         conn.executemany("INSERT INTO hierarchy_by_class VALUES (?,?,?,?)", hier_class)
         conn.executemany(
-            "INSERT INTO qbo_txn_consolidated VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO qbo_txn_consolidated VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             txns,
         )
         conn.executemany(
