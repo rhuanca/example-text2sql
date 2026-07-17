@@ -50,7 +50,7 @@ def _compile_single(ir, model, dialect, metrics, dims):
     base_phys = model.table(base).table
 
     def col(d: Dimension) -> str:
-        return f"{qi(model.table(d.table).table)}.{qi(d.column)}"
+        return _col_sql(model, d, dialect, qualify=True)
 
     needed_tables = {d.table for d in dims}
     for f in ir.filters:
@@ -191,6 +191,18 @@ def _field_table(model: SemanticModel, field_name: str) -> str:
     return model.field(field_name).table
 
 
+def _col_sql(model, d, dialect, qualify: bool = True) -> str:
+    """SQL for a dimension/fact reference: its `expr` if it is a derived dimension,
+    else the (optionally table-qualified) physical column."""
+    qi = dialect.quote_ident
+    expr = getattr(d, "expr", None)
+    if expr:
+        return f"({expr})"
+    if qualify:
+        return f"{qi(model.table(d.table).table)}.{qi(d.column)}"
+    return qi(d.column)
+
+
 def _where(ir, model, dialect, qualify: bool):
     """Build the WHERE for the single-base path (optionally table-qualified)."""
     qi = dialect.quote_ident
@@ -199,11 +211,7 @@ def _where(ir, model, dialect, qualify: bool):
 
     for f in ir.filters:
         d = model.field(f.field)
-        if qualify:
-            colexpr = f"{qi(model.table(d.table).table)}.{qi(d.column)}"
-        else:
-            colexpr = qi(d.column)
-        clause, p = _filter_sql(colexpr, f, dialect)
+        clause, p = _filter_sql(_col_sql(model, d, dialect, qualify), f, dialect)
         clauses.append(clause)
         params += p
 

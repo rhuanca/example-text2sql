@@ -88,7 +88,9 @@ class TestChooseChart(unittest.TestCase):
         self.assertEqual(spec.kind, "line")
         self.assertEqual(spec.x, "iso_week")
 
-    def test_two_effective_dims_one_time_is_multiseries_line(self):
+    def test_single_measure_split_over_time_is_stacked_bar(self):
+        # one measure (net sales) split by a categorical (market) over time: the
+        # parts sum to each week's total -> stacked bar, not overlaid lines.
         cols = ["iso_week", "market", "total_net_sales"]
         rows = [
             (10, "Houston", 50.0), (10, "Dallas", 30.0),
@@ -97,7 +99,8 @@ class TestChooseChart(unittest.TestCase):
         spec = choose_chart(
             ir(["total_net_sales"], ["iso_week", "market"]), cols, rows
         )
-        self.assertEqual(spec.kind, "line")
+        self.assertEqual(spec.kind, "bar")
+        self.assertEqual(spec.orientation, "stacked")
         self.assertEqual(spec.x, "iso_week")
         self.assertEqual(spec.series, "market")
 
@@ -109,10 +112,10 @@ class TestChooseChart(unittest.TestCase):
         self.assertEqual(spec.kind, "line")
         self.assertEqual(spec.x, "txn_month")
 
-    def test_expenses_and_income_by_month_is_multiseries_line(self):
-        # the reported case: total_amount by txn_year, txn_month, classification.
-        # txn_year is constant (dropped); month is the time axis, classification
-        # the series -> a two-line chart, not a table.
+    def test_single_measure_split_by_classification_over_month_is_stacked_bar(self):
+        # total_amount by txn_year, txn_month, classification. txn_year is constant
+        # (dropped); month is the time axis, classification the split -> one measure
+        # split over time sums to the monthly total -> stacked bar, not a table.
         cols = ["txn_year", "txn_month", "classification", "total_amount"]
         rows = [
             (2026, 1, "Expense", 10240.0), (2026, 1, "Revenue", 12800.0),
@@ -124,7 +127,8 @@ class TestChooseChart(unittest.TestCase):
             cols,
             rows,
         )
-        self.assertEqual(spec.kind, "line")
+        self.assertEqual(spec.kind, "bar")
+        self.assertEqual(spec.orientation, "stacked")
         self.assertEqual(spec.x, "txn_month")
         self.assertEqual(spec.series, "classification")
 

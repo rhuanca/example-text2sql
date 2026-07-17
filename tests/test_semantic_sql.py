@@ -243,6 +243,18 @@ class TestEndToEnd(SqlCase):
         self.assertEqual(len(result.columns), 3)  # week + one column per year
         self.assertTrue(result.rows)
 
+    def test_derived_month_dimension_groups_by_month(self):
+        sql, params, _ = compile_semantic_sql(
+            "SELECT month, total_net_sales FROM product_sales "
+            "GROUP BY month ORDER BY month",
+            self.model, self.dialect,
+        )
+        self.assertIn("substr(date, 1, 7)", sql)  # derived expr, not a column
+        _, rows = SqliteExecutor(self.db).run(sql, params)
+        # grouped by calendar month (YYYY-MM): 24 months over two years, not ~104 weeks
+        self.assertTrue(all(len(r[0]) == 7 and r[0][4] == "-" for r in rows))
+        self.assertEqual(len(rows), 24)
+
     def test_engine_runs_a_window_query(self):
         engine = Engine(self.model, _SqlPlanner(_WINDOW_SQL), self.dialect,
                         SqliteExecutor(self.db))

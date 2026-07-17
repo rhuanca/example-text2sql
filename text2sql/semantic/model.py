@@ -51,10 +51,14 @@ class Relationship:
 class Dimension:
     table: str
     name: str  # globally unique logical name
-    column: str
+    column: str | None = None  # physical column (None for a derived dimension)
     type: str = "text"
     synonyms: list[str] = field(default_factory=list)
     sample_values: list = field(default_factory=list)
+    # A derived dimension: a SQL expression over the table's columns instead of a
+    # bare column, e.g. month = substr(date, 1, 7). Referenced unqualified (like a
+    # metric's sql), so its columns must be unambiguous across the query's joins.
+    expr: str | None = None
 
 
 @dataclass
@@ -140,7 +144,7 @@ class SemanticModel:
         key, and any relationship join columns that touch this table."""
         cols: set[str] = set()
         for d in self.dimensions:
-            if d.table == table_name:
+            if d.table == table_name and d.column:  # skip derived (expr) dims
                 cols.add(d.column)
         for f in self.facts:
             if f.table == table_name:
@@ -226,10 +230,11 @@ def build_model(data: dict) -> SemanticModel:
         Dimension(
             table=d["table"],
             name=d["name"],
-            column=d.get("column", d["name"]),
+            column=d.get("column") or (None if d.get("expr") else d["name"]),
             type=d.get("type", "text"),
             synonyms=list(d.get("synonyms", [])),
             sample_values=list(d.get("sample_values", [])),
+            expr=d.get("expr"),
         )
         for d in data.get("dimensions", [])
     ]

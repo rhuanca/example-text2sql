@@ -104,6 +104,11 @@ def choose_chart(ir, columns: list[str], rows: list, units: dict | None = None) 
         if len(time_dims) == 1:
             x = time_dims[0]
             series = next(d for d in effective if d != x)
+            # A single measure split by a categorical over time: the segments sum
+            # to each period's total, so a stacked bar (total + composition) reads
+            # better than overlaid lines. Multiple measures stay a multi-series line.
+            if len(metrics) == 1:
+                return ChartSpec("bar", x=x, y=metrics, series=series, orientation="stacked")
             return ChartSpec("line", x=x, y=metrics, series=series)
 
     # Too complex to chart automatically -> show the table.

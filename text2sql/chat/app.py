@@ -109,6 +109,18 @@ def _md_safe(text: str) -> str:
     return text.replace("$", "\\$")
 
 
+_PCT_TOKENS = ("pct", "percent", "%", "growth", "share", "rate")
+
+
+def _percent_measure(name: str, units: dict) -> bool:
+    """A measure is percent-like if the model tags its unit percent, or its column
+    name suggests it (e.g. a derived `pct_change` from a window query)."""
+    if units.get(name) == "percent":
+        return True
+    n = name.lower()
+    return any(t in n for t in _PCT_TOKENS)
+
+
 def _fmt_number(v, unit: str | None = None):
     """Format a value for display, honoring the metric's unit: usd -> `$4,983.00`,
     percent -> `12.3%`, otherwise thousands-comma (`4,983` / `159,033.65`).
@@ -228,6 +240,34 @@ def grouped_bar(df: pd.DataFrame, category: str, metrics: list[str], fmt=","):
     )
 
 
+def stacked_bar(df: pd.DataFrame, x: str, series: str, metric: str, fmt=","):
+    """A vertical stacked bar: one measure split by a categorical over an ordered
+    (time) axis. The segments sum to each period's total, so it shows the total and
+    the composition at once. Colors follow the dataviz categorical palette."""
+    import altair as alt
+
+    return (
+        alt.Chart(df)
+        .mark_bar()
+        .encode(
+            x=alt.X(f"{x}:O", title=x.replace("_", " "),
+                    axis=alt.Axis(labelColor=INK_SECONDARY)),
+            y=alt.Y(f"{metric}:Q", title=None, stack="zero",
+                    axis=alt.Axis(format=fmt, labelColor=INK_MUTED, grid=True)),
+            color=alt.Color(f"{series}:N", title=None,
+                            scale=alt.Scale(range=PALETTE),
+                            legend=alt.Legend(orient="top")),
+            tooltip=[
+                alt.Tooltip(f"{x}:O"),
+                alt.Tooltip(f"{series}:N", title=series.replace("_", " ")),
+                alt.Tooltip(f"{metric}:Q", format=fmt),
+            ],
+        )
+        .properties(height=340)
+        .configure_view(strokeWidth=0)
+    )
+
+
 def comparison_long(comparison, columns: list[str], rows: list) -> pd.DataFrame:
     """Melt a wide period-comparison result to long rows (split_by, period, value).
     The columns after split_by are the pivoted `metric_<period>` columns in
@@ -276,6 +316,26 @@ def comparison_grouped_bar(long: pd.DataFrame, category: str, period_field: str,
         .properties(height=alt.Step(16))
         .configure_view(strokeWidth=0)
     )
+
+
+def line_panel(df: pd.DataFrame, x: str, metric: str, percent: bool = False):
+    """A single-measure line panel for a small-multiples time series. A percent-like
+    measure gets a `%`-formatted y-axis and a zero baseline, so a period-over-period
+    change reads against zero (flat weeks sit on the line, drops fall below it)."""
+    import altair as alt
+
+    y_axis = alt.Axis(labelExpr="format(datum.value, '.1f') + '%'") if percent else alt.Axis()
+    line = alt.Chart(df).mark_line(point=True, color=SERIES_1).encode(
+        x=alt.X(f"{x}:O", title=x.replace("_", " ")),
+        y=alt.Y(f"{metric}:Q", title=metric.replace("_", " "),
+                scale=alt.Scale(zero=percent), axis=y_axis),
+        tooltip=[alt.Tooltip(f"{x}:O"), alt.Tooltip(f"{metric}:Q")],
+    )
+    chart = line
+    if percent:  # a zero reference line to anchor gains vs. drops
+        zero = alt.Chart(df).mark_rule(color=AXIS_LINE).encode(y=alt.datum(0))
+        chart = zero + line
+    return chart.properties(height=180).configure_view(strokeWidth=0)
 
 
 def _display_frame(result) -> pd.DataFrame:
@@ -359,7 +419,10 @@ def _render_assistant(st, payload, units=None):
             df = to_frame(result.columns, result.rows)
             for metric in spec.y:
                 st.caption(metric.replace("_", " "))
-                st.line_chart(df.set_index(spec.x)[[metric]])
+                st.altair_chart(
+                    line_panel(df, spec.x, metric, _percent_measure(metric, units)),
+                    use_container_width=True,
+                )
         else:
             st.line_chart(chart_frame(spec, result.columns, result.rows))
     elif spec.kind == "bar" and spec.orientation == "grouped":
@@ -385,6 +448,13 @@ def _render_assistant(st, payload, units=None):
                                fmt=d3_format(units.get(metric))),
                 use_container_width=True,
             )
+    elif spec.kind == "bar" and spec.orientation == "stacked":
+        # one measure split by a categorical over time -> stacked bar (total + mix)
+        st.altair_chart(
+            stacked_bar(to_frame(result.columns, result.rows), spec.x, spec.series,
+                        spec.y[0], fmt=d3_format(units.get(spec.y[0]))),
+            use_container_width=True,
+        )
     elif spec.kind == "bar":
         st.bar_chart(chart_frame(spec, result.columns, result.rows))
 

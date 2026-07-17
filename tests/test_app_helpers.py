@@ -71,6 +71,28 @@ class TestAppHelpers(unittest.TestCase):
         self.assertEqual(app._fmt_number(2000.0), "2,000")  # whole float -> no decimals
         self.assertEqual(app._fmt_number("N/A"), "N/A")      # non-number passes through
 
+    def test_percent_measure(self):
+        self.assertTrue(app._percent_measure("pct_change", {}))
+        self.assertFalse(app._percent_measure("total_net_sales", {}))
+        self.assertTrue(app._percent_measure("margin", {"margin": "percent"}))
+
+    def test_line_panel_percent_axis_and_zero_line(self):
+        df = app.to_frame(["iso_week", "pct_change"], [(47, 2.22), (48, 0.0)])
+        spec = app.line_panel(df, "iso_week", "pct_change", percent=True).to_dict()
+        self.assertEqual(len(spec["layer"]), 2)  # zero rule + line
+        line = next(
+            l for l in spec["layer"]
+            if (l["mark"]["type"] if isinstance(l["mark"], dict) else l["mark"]) == "line"
+        )
+        self.assertIn("%", line["encoding"]["y"]["axis"]["labelExpr"])
+        self.assertTrue(line["encoding"]["y"]["scale"]["zero"])
+
+    def test_line_panel_plain_no_percent(self):
+        df = app.to_frame(["iso_week", "total_net_sales"], [(47, 195.5)])
+        spec = app.line_panel(df, "iso_week", "total_net_sales", percent=False).to_dict()
+        self.assertNotIn("layer", spec)  # single line, no zero rule
+        self.assertNotIn("labelExpr", spec["encoding"]["y"].get("axis") or {})
+
     def test_fmt_number_by_unit(self):
         self.assertEqual(app._fmt_number(21177.75, "usd"), "$21,177.75")
         self.assertEqual(app._fmt_number(4983, "count"), "4,983")
@@ -94,6 +116,21 @@ class TestAppHelpers(unittest.TestCase):
         self.assertEqual(enc["yOffset"]["field"], "measure")  # side-by-side, not stacked
         self.assertEqual(enc["x"]["axis"]["format"], "$,.2f")
         self.assertEqual(enc["color"]["scale"]["range"], [app.SERIES_1, app.SERIES_2])
+
+    def test_stacked_bar_stacks_and_colors_by_series(self):
+        df = app.to_frame(
+            ["txn_month", "account", "total_amount"],
+            [(7, "Product Sales", 100.0), (7, "Service Revenue", 60.0),
+             (8, "Product Sales", 90.0), (8, "Service Revenue", 50.0)],
+        )
+        spec = app.stacked_bar(
+            df, "txn_month", "account", "total_amount", fmt="$,.2f"
+        ).to_dict()
+        enc = spec["encoding"]
+        self.assertEqual(enc["y"]["stack"], "zero")       # stacked, not overlaid
+        self.assertEqual(enc["color"]["field"], "account")  # colored by the split
+        self.assertEqual(enc["x"]["field"], "txn_month")
+        self.assertEqual(enc["y"]["axis"]["format"], "$,.2f")
 
     def test_metric_units_loaded_from_yaml(self):
         units = {m.name: m.unit for m in load_sales_model().metrics}
