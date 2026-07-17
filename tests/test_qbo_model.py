@@ -71,6 +71,29 @@ class TestModel(QboCase):
         self.assertEqual(self.model.dimension("txn_month").type, "month")
         self.assertEqual(self.model.dimension("txn_year").type, "year")
 
+    def test_calendar_month_dimension_is_friendly_yyyy_mm(self):
+        # `month` is a derived calendar month (YYYY-MM) — a friendly, sortable value,
+        # as opposed to the bare numeric month-of-year `txn_month` (kept for pivots).
+        import re
+        from text2sql.engine.semantic_sql import compile_semantic_sql
+
+        m = self.model.dimension("month")
+        self.assertEqual(m.type, "month")
+        self.assertTrue(m.expr)          # derived expression
+        self.assertIsNone(m.column)      # not a bare physical column
+        sql, params, _ = compile_semantic_sql(
+            "SELECT month, total_amount FROM qbo_finance GROUP BY month ORDER BY month",
+            self.model, self.dialect,
+        )
+        conn = sqlite3.connect(self.db)
+        try:
+            rows = conn.execute(sql, params).fetchall()
+        finally:
+            conn.close()
+        self.assertTrue(rows)
+        self.assertTrue(all(re.match(r"^\d{4}-\d{2}$", r[0]) for r in rows))
+        self.assertEqual([r[0] for r in rows], sorted(r[0] for r in rows))  # chronological
+
     def test_net_income_joins_accounts_and_nets_revenue_minus_expense(self):
         sql, rows = self.run_ir({
             "metrics": ["net_income"], "dimensions": ["txn_month"],

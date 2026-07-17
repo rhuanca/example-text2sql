@@ -51,6 +51,39 @@ def _percent_measure(name: str, units: dict) -> bool:
     return any(t in n for t in _PCT_TOKENS)
 
 
+_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+          "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+def month_label(value):
+    """Friendly label for a month dimension value. A calendar month `"2026-04"`
+    (from a derived `substr(date,1,7)` dim) becomes `"Apr 2026"`; a bare
+    month-of-year `4` / `"4"` becomes `"Apr"` (no year — it spans years). Anything
+    else (a year like `2026`, a week number, a non-month value) passes through."""
+    s = str(value).strip()
+    if len(s) == 7 and s[4] == "-" and s[:4].isdigit() and s[5:].isdigit():
+        mm = int(s[5:])
+        if 1 <= mm <= 12:
+            return f"{_MONTHS[mm - 1]} {s[:4]}"
+    elif s.isdigit():
+        m = int(s)
+        if 1 <= m <= 12:
+            return _MONTHS[m - 1]
+    return value
+
+
+def _month_axis(df: pd.DataFrame, x: str, x_type: str | None):
+    """If `x` is a month dimension, relabel its values to `month_label` and return
+    an explicit chronological `sort` order (by the underlying value, so `"Apr 2026"`
+    still orders correctly). Otherwise return the frame unchanged and `sort=None`."""
+    if x_type != "month":
+        return df, None
+    order = [month_label(v) for v in sorted(set(df[x].tolist()))]
+    df = df.copy()
+    df[x] = df[x].map(month_label)
+    return df, order
+
+
 def _fmt_number(v, unit: str | None = None):
     """Format a value for display, honoring the metric's unit: usd -> `$4,983.00`,
     percent -> `12.3%`, otherwise thousands-comma (`4,983` / `159,033.65`).
@@ -96,10 +129,15 @@ def comparison_long(comparison, columns: list[str], rows: list) -> pd.DataFrame:
     return long[[split, "period", "value"]]
 
 
-def _display_frame(result) -> pd.DataFrame:
-    """The result table for display. For a period comparison, relabel the pivoted
-    `metric_<p>` columns to a readable `metric (period_field=p)`."""
+def _display_frame(result, types: dict | None = None) -> pd.DataFrame:
+    """The result table for display. Month dimension columns render friendly
+    (`"2026-04"` -> `"Apr 2026"`, a bare `4` -> `"Apr"`); for a period comparison,
+    relabel the pivoted `metric_<p>` columns to a readable `metric (period_field=p)`."""
+    types = types or {}
     df = to_frame(result.columns, result.rows)
+    for col in result.columns:
+        if types.get(col) == "month":
+            df[col] = df[col].map(month_label)
     if hasattr(result.ir, "period_field"):
         cmp = result.ir
         period_cols = [c for c in result.columns if c != cmp.split_by]
@@ -183,17 +221,19 @@ def grouped_bar(df: pd.DataFrame, category: str, metrics: list[str], fmt=","):
     )
 
 
-def stacked_bar(df: pd.DataFrame, x: str, series: str, metric: str, fmt=","):
+def stacked_bar(df: pd.DataFrame, x: str, series: str, metric: str, fmt=",",
+                x_type: str | None = None):
     """A vertical stacked bar: one measure split by a categorical over an ordered
     (time) axis. The segments sum to each period's total, so it shows the total and
     the composition at once. Colors follow the dataviz categorical palette."""
     import altair as alt
 
+    df, xsort = _month_axis(df, x, x_type)
     return (
         alt.Chart(df)
         .mark_bar()
         .encode(
-            x=alt.X(f"{x}:O", title=x.replace("_", " "),
+            x=alt.X(f"{x}:O", title=x.replace("_", " "), sort=xsort,
                     axis=alt.Axis(labelColor=INK_SECONDARY)),
             y=alt.Y(f"{metric}:Q", title=None, stack="zero",
                     axis=alt.Axis(format=fmt, labelColor=INK_MUTED, grid=True)),
@@ -246,20 +286,22 @@ def comparison_grouped_bar(long: pd.DataFrame, category: str, period_field: str,
     )
 
 
-def line_chart(df: pd.DataFrame, x: str, value: str, color: str | None = None, fmt=","):
+def line_chart(df: pd.DataFrame, x: str, value: str, color: str | None = None, fmt=",",
+               x_type: str | None = None):
     """A time-series line in the dataviz palette: `value` over an ordered `x`, with
     one line per `color` category (palette + legend) when given, else a single blue
     line. Formatted y-axis + tooltip. Replaces st.line_chart so lines match the
     bars (palette, $/%, tooltips)."""
     import altair as alt
 
+    df, xsort = _month_axis(df, x, x_type)
     tooltip = [alt.Tooltip(f"{x}:O")]
     if color:
         tooltip.append(alt.Tooltip(f"{color}:N", title=color.replace("_", " ")))
     tooltip.append(alt.Tooltip(f"{value}:Q", format=fmt))
 
     enc = {
-        "x": alt.X(f"{x}:O", title=x.replace("_", " "),
+        "x": alt.X(f"{x}:O", title=x.replace("_", " "), sort=xsort,
                    axis=alt.Axis(labelColor=INK_SECONDARY)),
         "y": alt.Y(f"{value}:Q", title=None, scale=alt.Scale(zero=False),
                    axis=alt.Axis(format=fmt, labelColor=INK_MUTED)),
@@ -275,15 +317,17 @@ def line_chart(df: pd.DataFrame, x: str, value: str, color: str | None = None, f
     )
 
 
-def line_panel(df: pd.DataFrame, x: str, metric: str, percent: bool = False):
+def line_panel(df: pd.DataFrame, x: str, metric: str, percent: bool = False,
+               x_type: str | None = None):
     """A single-measure line panel for a small-multiples time series. A percent-like
     measure gets a `%`-formatted y-axis and a zero baseline, so a period-over-period
     change reads against zero (flat weeks sit on the line, drops fall below it)."""
     import altair as alt
 
+    df, xsort = _month_axis(df, x, x_type)
     y_axis = alt.Axis(labelExpr="format(datum.value, '.1f') + '%'") if percent else alt.Axis()
     line = alt.Chart(df).mark_line(point=True, color=SERIES_1).encode(
-        x=alt.X(f"{x}:O", title=x.replace("_", " ")),
+        x=alt.X(f"{x}:O", title=x.replace("_", " "), sort=xsort),
         y=alt.Y(f"{metric}:Q", title=metric.replace("_", " "),
                 scale=alt.Scale(zero=percent), axis=y_axis),
         tooltip=[alt.Tooltip(f"{x}:O"), alt.Tooltip(f"{metric}:Q")],

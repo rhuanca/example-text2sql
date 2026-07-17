@@ -201,6 +201,37 @@ class TestAppHelpers(unittest.TestCase):
         self.assertIn("units_sold (iso_week=50)", df.columns)
         self.assertIn("units_sold (iso_week=51)", df.columns)
 
+    def test_month_label(self):
+        self.assertEqual(plots.month_label("2026-04"), "Apr 2026")   # calendar month
+        self.assertEqual(plots.month_label("2026-12"), "Dec 2026")
+        self.assertEqual(plots.month_label(4), "Apr")                # month-of-year
+        self.assertEqual(plots.month_label("7"), "Jul")
+        self.assertEqual(plots.month_label(2026), 2026)              # a year -> unchanged
+        self.assertEqual(plots.month_label("Houston"), "Houston")    # passthrough
+
+    def test_month_axis_relabels_and_sorts_chronologically(self):
+        df = app.to_frame(["month", "v"], [("2026-04", 1), ("2026-03", 2)])
+        out, order = plots._month_axis(df, "month", "month")
+        self.assertEqual(list(out["month"]), ["Apr 2026", "Mar 2026"])  # rows in place
+        self.assertEqual(order, ["Mar 2026", "Apr 2026"])              # chronological sort
+        _, none = plots._month_axis(df, "month", "week")               # non-month
+        self.assertIsNone(none)
+
+    def test_display_frame_prettifies_month_columns(self):
+        result = SimpleNamespace(
+            ir=SimpleNamespace(),  # no period_field
+            columns=["month", "total_amount"],
+            rows=[("2026-03", 100.0), ("2026-04", 120.0)],
+        )
+        df = app._display_frame(result, {"month": "month"})
+        self.assertEqual(list(df["month"]), ["Mar 2026", "Apr 2026"])
+        self.assertEqual(list(df["total_amount"]), [100.0, 120.0])  # non-month untouched
+
+    def test_line_chart_month_axis_is_chronological(self):
+        df = app.to_frame(["month", "total_amount"], [("2026-04", 120.0), ("2026-03", 100.0)])
+        spec = app.line_chart(df, "month", "total_amount", x_type="month").to_dict()
+        self.assertEqual(spec["encoding"]["x"]["sort"], ["Mar 2026", "Apr 2026"])
+
     def test_safe_summarize_falls_back_on_error(self):
         class Boom:
             def summarize(self, *a):

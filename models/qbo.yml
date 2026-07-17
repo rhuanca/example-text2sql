@@ -57,8 +57,14 @@ dimensions:
       synonyms: [date, transaction date, posting date, day] }
   - { table: txn, name: txn_year, column: Year, type: year,
       synonyms: [year] }
+  # numeric month-of-year (1-12): kept for cross-year seasonal pivots
+  # (e.g. compare Jan across 2025 vs 2026). Plain "month" resolves to `month` below.
   - { table: txn, name: txn_month, column: Month, type: month,
-      synonyms: [month] }
+      synonyms: [month number, month of year] }
+  # derived calendar month "YYYY-MM" from the date; the UI displays it as "Apr 2026".
+  - { table: txn, name: month, expr: "substr(Date, 1, 7)", type: month,
+      synonyms: [month, calendar month, year month, monthly],
+      sample_values: ["2026-01", "2026-02"] }
   - { table: txn, name: txn_quarter, column: Quarter, type: quarter,
       synonyms: [quarter, qtr] }
   - { table: txn, name: week_number, column: Week, type: week,
@@ -110,7 +116,11 @@ dimensions:
   - { table: invoices, name: invoice_year, column: Year, type: year,
       synonyms: [invoice year] }
   - { table: invoices, name: invoice_month, column: Month, type: month,
-      synonyms: [invoice month] }
+      synonyms: [invoice month number, invoice month of year] }
+  # derived calendar month "YYYY-MM" for invoices; displays as "Apr 2026".
+  - { table: invoices, name: invoice_period, expr: "substr(Date, 1, 7)", type: month,
+      synonyms: [invoice month, invoice calendar month, invoice period],
+      sample_values: ["2026-01", "2026-02"] }
   - { table: invoices, name: item, column: SalesItemLineDetail_ItemRef_name,
       synonyms: [item, product, sku],
       sample_values: ["Espresso Beans", "Cold Brew Kit", "Mug"] }
@@ -162,8 +172,8 @@ verified_queries:
       SELECT total_amount FROM qbo_finance WHERE classification = 'Revenue'
   - question: "Show revenue by month"
     sql: >
-      SELECT txn_month, total_amount FROM qbo_finance
-      WHERE classification = 'Revenue' GROUP BY txn_month ORDER BY txn_month
+      SELECT month, total_amount FROM qbo_finance
+      WHERE classification = 'Revenue' GROUP BY month ORDER BY month
   - question: "Top 10 expense accounts"
     sql: >
       SELECT account_name, total_amount FROM qbo_finance

@@ -179,20 +179,24 @@ def _render_assistant(st, payload, units=None, additive=None, types=None):
             for metric in spec.y:
                 st.caption(metric.replace("_", " "))
                 st.altair_chart(
-                    line_panel(df, spec.x, metric, _percent_measure(metric, units)),
+                    line_panel(df, spec.x, metric, _percent_measure(metric, units),
+                               x_type=types.get(spec.x)),
                     use_container_width=True,
                 )
         elif spec.series:
             # single measure split by a categorical over time -> one line per series
-            st.altair_chart(line_chart(df, spec.x, spec.y[0], color=spec.series, fmt=fmt),
+            st.altair_chart(line_chart(df, spec.x, spec.y[0], color=spec.series, fmt=fmt,
+                                       x_type=types.get(spec.x)),
                             use_container_width=True)
         elif len(spec.y) == 1:
-            st.altair_chart(line_chart(df, spec.x, spec.y[0], fmt=fmt),
+            st.altair_chart(line_chart(df, spec.x, spec.y[0], fmt=fmt,
+                                       x_type=types.get(spec.x)),
                             use_container_width=True)
         else:  # 2+ same-scale measures -> one line per measure
             long_df = df.melt(id_vars=[spec.x], value_vars=spec.y,
                               var_name="measure", value_name="value")
-            st.altair_chart(line_chart(long_df, spec.x, "value", color="measure", fmt=fmt),
+            st.altair_chart(line_chart(long_df, spec.x, "value", color="measure", fmt=fmt,
+                                       x_type=types.get(spec.x)),
                             use_container_width=True)
     elif spec.kind == "bar" and spec.orientation == "grouped":
         # Same-unit measures (e.g. sales vs budget) compared side by side on one
@@ -221,13 +225,14 @@ def _render_assistant(st, payload, units=None, additive=None, types=None):
         # one measure split by a categorical over time -> stacked bar (total + mix)
         st.altair_chart(
             stacked_bar(to_frame(result.columns, result.rows), spec.x, spec.series,
-                        spec.y[0], fmt=d3_format(units.get(spec.y[0]))),
+                        spec.y[0], fmt=d3_format(units.get(spec.y[0])),
+                        x_type=types.get(spec.x)),
             use_container_width=True,
         )
     elif spec.kind == "bar":
         st.bar_chart(chart_frame(spec, result.columns, result.rows))
 
-    st.dataframe(_display_frame(result), use_container_width=True)
+    st.dataframe(_display_frame(result, types), use_container_width=True)
     with st.expander("Show SQL"):
         if result.semantic_sql:
             st.caption("Semantic SQL — written by the assistant")
