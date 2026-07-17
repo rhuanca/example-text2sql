@@ -55,13 +55,13 @@ dimensions:
   # ---- txn (qbo_txn_consolidated) ----
   - { table: txn, name: txn_date, column: Date, type: date,
       synonyms: [date, transaction date, posting date, day] }
-  - { table: txn, name: txn_year, column: Year, type: number,
+  - { table: txn, name: txn_year, column: Year, type: year,
       synonyms: [year] }
-  - { table: txn, name: txn_month, column: Month, type: number,
+  - { table: txn, name: txn_month, column: Month, type: month,
       synonyms: [month] }
-  - { table: txn, name: txn_quarter, column: Quarter, type: number,
+  - { table: txn, name: txn_quarter, column: Quarter, type: quarter,
       synonyms: [quarter, qtr] }
-  - { table: txn, name: week_number, column: Week, type: number,
+  - { table: txn, name: week_number, column: Week, type: week,
       synonyms: [week, week number, week of year] }
   - { table: txn, name: entity, column: Entity,
       synonyms: [company, legal entity, subsidiary, book],
@@ -107,9 +107,9 @@ dimensions:
   # ---- invoices (qbo_invoices) ----
   - { table: invoices, name: invoice_date, column: Date, type: date,
       synonyms: [invoice date] }
-  - { table: invoices, name: invoice_year, column: Year, type: number,
+  - { table: invoices, name: invoice_year, column: Year, type: year,
       synonyms: [invoice year] }
-  - { table: invoices, name: invoice_month, column: Month, type: number,
+  - { table: invoices, name: invoice_month, column: Month, type: month,
       synonyms: [invoice month] }
   - { table: invoices, name: item, column: SalesItemLineDetail_ItemRef_name,
       synonyms: [item, product, sku],
@@ -134,6 +134,7 @@ metrics:
   - name: net_income
     table: txn
     sql: "SUM(CASE WHEN Classification = 'Revenue' THEN CAST(Amount AS REAL) ELSE -CAST(Amount AS REAL) END)"
+    description: "Revenue minus expense (profit); positive amounts, sign flipped for expenses."
     synonyms: [net income, profit, net profit, bottom line, earnings]
     unit: usd
     joins: [accounts]

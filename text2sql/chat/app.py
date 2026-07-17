@@ -134,9 +134,10 @@ def _fallback_summary(rows) -> str:
 
 
 # ---- Streamlit rendering (only runs under `streamlit run`) -----------------
-def _render_assistant(st, payload, units=None, additive=None):
+def _render_assistant(st, payload, units=None, additive=None, types=None):
     units = units or {}
     additive = additive or {}
+    types = types or {}
     if payload.get("error"):
         st.error(payload["error"])
         return
@@ -144,7 +145,7 @@ def _render_assistant(st, payload, units=None, additive=None):
     st.markdown(_md_safe(payload["summary"]))
 
     spec = choose_chart(result.ir, result.columns, result.rows,
-                        units=units, additive=additive)
+                        units=units, additive=additive, types=types)
     if hasattr(result.ir, "period_field") and spec.kind in ("line", "bar"):
         # A period comparison: melt the wide pivot and render a trend line (week
         # over week) or a grouped bar (periods side by side) — never stacked.
@@ -260,15 +261,15 @@ def _render_model_map(st, model):
     if fields["metrics"]:
         st.markdown("**Metrics**")
         for m in fields["metrics"]:
-            st.markdown(f"- `{m.name}` — {', '.join(m.synonyms) or 'no synonyms'}")
+            st.markdown(f"- `{m.name}` — {m.description or ', '.join(m.synonyms) or 'no synonyms'}")
             st.code(m.sql, language="sql")
 
     if fields["dimensions"]:
         st.markdown("**Dimensions**")
         df = to_frame(
-            ["dimension", "column", "type", "sample values"],
+            ["dimension", "description", "type", "sample values"],
             [
-                (d.name, d.column, d.type, ", ".join(str(v) for v in d.sample_values))
+                (d.name, d.description, d.type, ", ".join(str(v) for v in d.sample_values))
                 for d in fields["dimensions"]
             ],
         )
@@ -325,13 +326,14 @@ def main():
 
     units = {m.name: m.unit for m in model.metrics}  # metric -> unit hint
     additive = {d.name: d.additive for d in model.dimensions}  # dim -> stackable?
+    types = {d.name: d.type for d in model.dimensions}  # dim -> declared type (time?)
 
     for msg in st.session_state.history:
         with st.chat_message(msg["role"]):
             if msg["role"] == "user":
                 st.markdown(msg["text"])
             else:
-                _render_assistant(st, msg, units, additive)
+                _render_assistant(st, msg, units, additive, types)
 
     if prompt := st.chat_input(ds.placeholder):
         # Prior turns become the planner's short-term memory (before we append
@@ -350,7 +352,7 @@ def main():
                 payload = {"role": "assistant", "result": result, "summary": summary}
             except EngineError as e:
                 payload = {"role": "assistant", "error": f"Sorry — I couldn't answer that: {e}"}
-            _render_assistant(st, payload, units, additive)
+            _render_assistant(st, payload, units, additive, types)
             st.session_state.history.append(payload)
 
 

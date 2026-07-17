@@ -110,7 +110,8 @@ def build_system_prompt(model: SemanticModel) -> str:
         if getattr(d, "sample_values", None):
             bits.append("examples: " + ", ".join(str(v) for v in d.sample_values))
         meta = f"  [{'; '.join(bits)}]" if bits else ""
-        lines.append(f"- {d.name}{meta}")
+        desc = f" — {d.description}" if getattr(d, "description", "") else ""
+        lines.append(f"- {d.name}{desc}{meta}")
     lines += ["", "METRICS (already aggregated — select by name):"]
     for m in model.metrics:
         bits = []
@@ -119,7 +120,8 @@ def build_system_prompt(model: SemanticModel) -> str:
         if getattr(m, "unit", None):
             bits.append(f"unit: {m.unit}")
         meta = f"  [{'; '.join(bits)}]" if bits else ""
-        lines.append(f"- {m.name}{meta}")
+        desc = f" — {m.description}" if getattr(m, "description", "") else ""
+        lines.append(f"- {m.name}{desc}{meta}")
     lines += [
         "",
         "RULES:",

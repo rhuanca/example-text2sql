@@ -42,12 +42,12 @@ dimensions:
   - { table: fact_sales, name: date, column: date, type: date,
       synonyms: [business date, transaction date, day] }
   # derived dimension: calendar month "YYYY-MM" from the date (no month column)
-  - { table: fact_sales, name: month, expr: "substr(date, 1, 7)", type: text,
+  - { table: fact_sales, name: month, expr: "substr(date, 1, 7)", type: month,
       synonyms: [month, calendar month, year month],
       sample_values: ["2026-07", "2026-08"] }
-  - { table: fact_sales, name: iso_week, column: iso_week, type: number,
+  - { table: fact_sales, name: iso_week, column: iso_week, type: week,
       synonyms: [week, week number] }
-  - { table: fact_sales, name: iso_year, column: iso_year, type: number,
+  - { table: fact_sales, name: iso_year, column: iso_year, type: year,
       synonyms: [year] }
   - { table: fact_sales, name: store_id, column: store_id,
       synonyms: [store, location, fc, store code, franchise code] }

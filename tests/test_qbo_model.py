@@ -66,6 +66,11 @@ class TestModel(QboCase):
         self.assertTrue(self.model.dimension("department").additive)  # default
         self.assertEqual(self.model.metric("net_income").joins, ["accounts"])
 
+    def test_descriptions_and_time_types_load(self):
+        self.assertTrue(self.model.metric("net_income").description)
+        self.assertEqual(self.model.dimension("txn_month").type, "month")
+        self.assertEqual(self.model.dimension("txn_year").type, "year")
+
     def test_net_income_joins_accounts_and_nets_revenue_minus_expense(self):
         sql, rows = self.run_ir({
             "metrics": ["net_income"], "dimensions": ["txn_month"],

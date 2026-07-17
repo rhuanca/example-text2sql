@@ -51,6 +51,7 @@ class Relationship:
 class Dimension:
     table: str
     name: str  # globally unique logical name
+    description: str = ""
     column: str | None = None  # physical column (None for a derived dimension)
     type: str = "text"
     synonyms: list[str] = field(default_factory=list)
@@ -77,6 +78,7 @@ class Metric:
     table: str
     name: str  # globally unique logical name
     sql: str  # aggregate expression over the table's physical columns
+    description: str = ""
     synonyms: list[str] = field(default_factory=list)
     # Measurement unit, used to decide whether measures can share a chart axis
     # (same unit) and how to format their values. e.g. "usd", "count", "percent".
@@ -242,6 +244,7 @@ def build_model(data: dict) -> SemanticModel:
         Dimension(
             table=d["table"],
             name=d["name"],
+            description=d.get("description", ""),
             column=d.get("column") or (None if d.get("expr") else d["name"]),
             type=d.get("type", "text"),
             synonyms=list(d.get("synonyms", [])),
@@ -262,6 +265,7 @@ def build_model(data: dict) -> SemanticModel:
             table=m["table"],
             name=m["name"],
             sql=m["sql"],
+            description=m.get("description", ""),
             synonyms=list(m.get("synonyms", [])),
             unit=m.get("unit"),
             joins=list(m.get("joins", [])),

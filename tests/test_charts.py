@@ -1,6 +1,6 @@
 import unittest
 
-from text2sql.chat.charts import choose_chart
+from text2sql.chat.charts import choose_chart, is_time_like
 from text2sql.engine.ir import SemanticQuery
 
 
@@ -13,6 +13,23 @@ class TestChooseChart(unittest.TestCase):
         spec = choose_chart(ir(["total_net_sales"], []), ["total_net_sales"], [(123.0,)])
         self.assertEqual(spec.kind, "number")
         self.assertEqual(spec.y, ["total_net_sales"])
+
+    def test_is_time_like_uses_declared_type(self):
+        types = {"txn_month": "month", "weekday_label": "text", "market": "text"}
+        self.assertTrue(is_time_like("txn_month", types))       # declared month
+        self.assertFalse(is_time_like("weekday_label", types))  # text -> not time
+        self.assertFalse(is_time_like("market", types))
+
+    def test_is_time_like_name_fallback_without_types(self):
+        self.assertTrue(is_time_like("iso_week"))   # fallback name heuristic
+        self.assertFalse(is_time_like("market"))
+
+    def test_time_dimension_by_type_is_line(self):
+        cols = ["txn_month", "total_amount"]
+        rows = [(1, 100.0), (2, 120.0), (3, 90.0)]
+        spec = choose_chart(ir(["total_amount"], ["txn_month"]), cols, rows,
+                            types={"txn_month": "month"})
+        self.assertEqual(spec.kind, "line")
 
     def test_time_dimension_is_line(self):
         cols = ["iso_week", "total_net_sales"]

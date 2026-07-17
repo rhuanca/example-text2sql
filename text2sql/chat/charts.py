@@ -9,12 +9,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-# Tokens that mark a dimension as an ordered/time axis -> line chart. Matched
-# per underscore-delimited token, so model-prefixed names like `txn_month` or
-# `invoice_week` are recognized, not just the bare `month`/`week`.
-TIME_TOKENS = {
-    "date", "day", "week", "month", "quarter", "year", "time",
-}
+# A dimension is a time axis when its DECLARED type is temporal (Snowflake types
+# time dimensions explicitly). Name tokens are a last-resort fallback used only
+# when the caller doesn't pass declared types (e.g. some pure-unit tests).
+TIME_TYPES = {"date", "time", "week", "month", "quarter", "year"}
+_TIME_TOKENS = {"date", "day", "week", "month", "quarter", "year", "time"}
 
 
 @dataclass
@@ -29,8 +28,10 @@ class ChartSpec:
     orientation: str = "vertical"
 
 
-def is_time_like(dim_name: str) -> bool:
-    return any(tok in TIME_TOKENS for tok in dim_name.lower().split("_"))
+def is_time_like(name: str, types: dict | None = None) -> bool:
+    if types is not None:  # declared-type driven (preferred)
+        return types.get(name) in TIME_TYPES
+    return any(tok in _TIME_TOKENS for tok in name.lower().split("_"))
 
 
 def _distinct_count(name: str, columns: list[str], rows: list) -> int:
@@ -50,7 +51,7 @@ def _same_unit(metrics: list[str], units: dict | None) -> bool:
 
 
 def choose_chart(ir, columns: list[str], rows: list, units: dict | None = None,
-                 additive: dict | None = None) -> ChartSpec:
+                 additive: dict | None = None, types: dict | None = None) -> ChartSpec:
     # A period Comparison is wide (split_by + one metric column per period). It is
     # the SAME measure across periods, so it must never stack. When the periods
     # form a rolling time trend over a plain category (period is time, split_by is
@@ -62,8 +63,8 @@ def choose_chart(ir, columns: list[str], rows: list, units: dict | None = None,
         if not rows or not y:
             return ChartSpec("table", y=y)
         if (
-            is_time_like(ir.period_field)
-            and not is_time_like(ir.split_by)
+            is_time_like(ir.period_field, types)
+            and not is_time_like(ir.split_by, types)
             and len(ir.periods) >= 3  # a trend needs several points; 2 -> grouped
         ):
             return ChartSpec("line", x=ir.period_field, y=[ir.metric], series=ir.split_by)
@@ -89,7 +90,7 @@ def choose_chart(ir, columns: list[str], rows: list, units: dict | None = None,
 
     if len(effective) == 1:
         dim = effective[0]
-        if is_time_like(dim):
+        if is_time_like(dim, types):
             return ChartSpec("line", x=dim, y=metrics)
         # Two+ measures that share a unit (e.g. sales vs budget, both USD) can
         # sit on one axis -> a grouped bar. Different units (dollars vs a count)
@@ -101,7 +102,7 @@ def choose_chart(ir, columns: list[str], rows: list, units: dict | None = None,
         return ChartSpec("bar", x=dim, y=metrics, orientation="horizontal")
 
     if len(effective) == 2:
-        time_dims = [d for d in effective if is_time_like(d)]
+        time_dims = [d for d in effective if is_time_like(d, types)]
         if len(time_dims) == 1:
             x = time_dims[0]
             series = next(d for d in effective if d != x)
