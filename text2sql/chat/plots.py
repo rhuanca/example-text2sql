@@ -246,6 +246,35 @@ def comparison_grouped_bar(long: pd.DataFrame, category: str, period_field: str,
     )
 
 
+def line_chart(df: pd.DataFrame, x: str, value: str, color: str | None = None, fmt=","):
+    """A time-series line in the dataviz palette: `value` over an ordered `x`, with
+    one line per `color` category (palette + legend) when given, else a single blue
+    line. Formatted y-axis + tooltip. Replaces st.line_chart so lines match the
+    bars (palette, $/%, tooltips)."""
+    import altair as alt
+
+    tooltip = [alt.Tooltip(f"{x}:O")]
+    if color:
+        tooltip.append(alt.Tooltip(f"{color}:N", title=color.replace("_", " ")))
+    tooltip.append(alt.Tooltip(f"{value}:Q", format=fmt))
+
+    enc = {
+        "x": alt.X(f"{x}:O", title=x.replace("_", " "),
+                   axis=alt.Axis(labelColor=INK_SECONDARY)),
+        "y": alt.Y(f"{value}:Q", title=None, scale=alt.Scale(zero=False),
+                   axis=alt.Axis(format=fmt, labelColor=INK_MUTED)),
+        "tooltip": tooltip,
+    }
+    if color:
+        enc["color"] = alt.Color(f"{color}:N", title=None,
+                                 scale=alt.Scale(range=PALETTE),
+                                 legend=alt.Legend(orient="top"))
+    return (
+        alt.Chart(df).mark_line(point=True, color=SERIES_1)
+        .encode(**enc).properties(height=320).configure_view(strokeWidth=0)
+    )
+
+
 def line_panel(df: pd.DataFrame, x: str, metric: str, percent: bool = False):
     """A single-measure line panel for a small-multiples time series. A percent-like
     measure gets a `%`-formatted y-axis and a zero baseline, so a period-over-period

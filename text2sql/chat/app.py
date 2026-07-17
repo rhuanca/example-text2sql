@@ -37,7 +37,7 @@ from text2sql.chat.model_map import model_to_dot, table_fields
 from text2sql.chat.plots import (
     _display_frame, _fmt_number, _md_safe, _percent_measure, chart_frame,
     comparison_grouped_bar, comparison_long, d3_format, grouped_bar,
-    horizontal_bar, line_panel, stacked_bar, to_frame,
+    horizontal_bar, line_chart, line_panel, stacked_bar, to_frame,
 )
 from text2sql.chat.summarizer import AnthropicSummarizer, MockSummarizer
 
@@ -149,8 +149,10 @@ def _render_assistant(st, payload, units=None):
         long = comparison_long(result.ir, result.columns, result.rows)
         fmt = d3_format(units.get(result.ir.metric))
         if spec.kind == "line":
-            wide = long.pivot(index="period", columns=result.ir.split_by, values="value")
-            st.line_chart(wide)
+            st.altair_chart(
+                line_chart(long, "period", "value", color=result.ir.split_by, fmt=fmt),
+                use_container_width=True,
+            )
         else:
             st.altair_chart(
                 comparison_grouped_bar(long, result.ir.split_by,
@@ -163,21 +165,32 @@ def _render_assistant(st, payload, units=None):
             idx = result.columns.index(metric)
             c.metric(metric, _fmt_number(result.rows[0][idx], units.get(metric)))
     elif spec.kind == "line":
+        df = to_frame(result.columns, result.rows)
         metric_units = {units.get(m) for m in spec.y}
         same_scale = len(metric_units) == 1 and None not in metric_units
+        fmt = d3_format(units.get(spec.y[0]))
         if len(spec.y) > 1 and not spec.series and not same_scale:
             # measures of different (or unknown) scale — e.g. net sales AND a %
             # change — get one panel each so neither is squashed onto the other's
             # axis (a % near 0 vanishes next to sales in the hundreds).
-            df = to_frame(result.columns, result.rows)
             for metric in spec.y:
                 st.caption(metric.replace("_", " "))
                 st.altair_chart(
                     line_panel(df, spec.x, metric, _percent_measure(metric, units)),
                     use_container_width=True,
                 )
-        else:
-            st.line_chart(chart_frame(spec, result.columns, result.rows))
+        elif spec.series:
+            # single measure split by a categorical over time -> one line per series
+            st.altair_chart(line_chart(df, spec.x, spec.y[0], color=spec.series, fmt=fmt),
+                            use_container_width=True)
+        elif len(spec.y) == 1:
+            st.altair_chart(line_chart(df, spec.x, spec.y[0], fmt=fmt),
+                            use_container_width=True)
+        else:  # 2+ same-scale measures -> one line per measure
+            long_df = df.melt(id_vars=[spec.x], value_vars=spec.y,
+                              var_name="measure", value_name="value")
+            st.altair_chart(line_chart(long_df, spec.x, "value", color="measure", fmt=fmt),
+                            use_container_width=True)
     elif spec.kind == "bar" and spec.orientation == "grouped":
         # Same-unit measures (e.g. sales vs budget) compared side by side on one
         # formatted axis.

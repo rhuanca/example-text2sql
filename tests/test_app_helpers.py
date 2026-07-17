@@ -117,6 +117,23 @@ class TestAppHelpers(unittest.TestCase):
         self.assertEqual(enc["x"]["axis"]["format"], "$,.2f")
         self.assertEqual(enc["color"]["scale"]["range"], [plots.SERIES_1, plots.SERIES_2])
 
+    def test_line_chart_single_uses_palette_blue_and_formats(self):
+        df = app.to_frame(["iso_week", "total_net_sales"], [(10, 100.0), (11, 120.0)])
+        spec = app.line_chart(df, "iso_week", "total_net_sales", fmt="$,.2f").to_dict()
+        self.assertEqual(spec["mark"]["type"], "line")
+        self.assertEqual(spec["mark"]["color"], plots.SERIES_1)  # single line = slot 1
+        self.assertEqual(spec["encoding"]["y"]["axis"]["format"], "$,.2f")
+        self.assertNotIn("color", spec["encoding"])  # no series -> no legend
+
+    def test_line_chart_multiseries_colors_by_category(self):
+        df = app.to_frame(
+            ["iso_week", "market", "total_net_sales"],
+            [(10, "Houston", 50.0), (10, "Dallas", 30.0)],
+        )
+        spec = app.line_chart(df, "iso_week", "total_net_sales", color="market").to_dict()
+        self.assertEqual(spec["encoding"]["color"]["field"], "market")
+        self.assertEqual(spec["encoding"]["color"]["scale"]["range"], plots.PALETTE)
+
     def test_stacked_bar_stacks_and_colors_by_series(self):
         df = app.to_frame(
             ["txn_month", "account", "total_amount"],
