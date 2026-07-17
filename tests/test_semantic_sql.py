@@ -264,6 +264,20 @@ class TestEndToEnd(SqlCase):
         self.assertIsNone(result.rows[0][2])  # first week has no prior -> NULL change
         self.assertTrue(any(r[2] is not None for r in result.rows[1:]))
 
+    def test_model_verified_queries_are_valid_semantic_sql(self):
+        # Every verified query in the model must parse (semantic SQL), compile, and
+        # run — so the few-shot examples we feed the planner stay correct. One of
+        # them is the % change window query (the pattern is defined in the model,
+        # not a hardcoded planner rule), so its derived pct_change column shows here.
+        self.assertTrue(self.model.verified_queries)  # the model declares some
+        derived_cols = set()
+        for vq in self.model.verified_queries:
+            sql, params, _ = compile_semantic_sql(vq.sql, self.model, self.dialect)
+            columns, _ = SqliteExecutor(self.db).run(sql, params)
+            self.assertTrue(columns, vq.question)
+            derived_cols.update(columns)
+        self.assertIn("pct_change", derived_cols)  # % change lives in the model
+
 
 if __name__ == "__main__":
     unittest.main()

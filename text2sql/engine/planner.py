@@ -142,10 +142,6 @@ def build_system_prompt(model: SemanticModel) -> str:
         "THEN <metric> END)` column per period, grouped by the row bucket — it "
         "renders as a grouped bar. Use the metric's own aggregate (SUM for a sum "
         "metric).",
-        "- For period-over-period change (% change, growth, running total, rank), "
-        "use a window function over a metric and GROUP BY the dimensions, e.g. "
-        "`LAG(<metric>) OVER (ORDER BY <time_dim>)`. Reference metrics by name "
-        "(they are already aggregated); alias derived columns.",
     ]
     # Prefer the model's curated verified queries (question -> semantic SQL);
     # fall back to generated examples for a model that declares none.

@@ -109,3 +109,12 @@ verified_queries:
     sql: >
       SELECT store_id, total_net_sales, total_budget FROM product_sales
       GROUP BY store_id
+  # period-over-period % change: a LAG window over the aggregated metric. The
+  # engine lowers it over a deterministic base aggregate; alias the derived column.
+  - question: "What is the week-over-week percent change in Cappuccino net sales?"
+    sql: >
+      SELECT iso_week, total_net_sales,
+        100.0 * (total_net_sales - LAG(total_net_sales) OVER (ORDER BY iso_week))
+        / LAG(total_net_sales) OVER (ORDER BY iso_week) AS pct_change
+      FROM product_sales WHERE product_name = 'Cappuccino'
+      GROUP BY iso_week ORDER BY iso_week
