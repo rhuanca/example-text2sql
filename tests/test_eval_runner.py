@@ -14,17 +14,9 @@ from tests.util import load_sales_model
 CASES_PATH = Path(__file__).resolve().parents[1] / "eval" / "cases.yml"
 
 
-def perfect_rules(cases):
-    """Rules that reproduce each case's expected IR. Longest questions first so
-    no question is shadowed by a shorter substring."""
-    rules = [(c.question, c.expected.to_dict()) for c in cases]
-    rules.sort(key=lambda kv: len(kv[0]), reverse=True)
-    return rules
-
-
 class _PlannerFromRules:
-    """Test stub planner: matches the full question exactly (no substring
-    ambiguity), falling back to a configured override per question."""
+    """Test stub planner: returns each question's expected plan (a SemanticQuery
+    or reference semantic SQL str), with a per-question override (an IR dict)."""
 
     def __init__(self, by_question, override=None):
         self.by_question = by_question
@@ -33,7 +25,7 @@ class _PlannerFromRules:
     def plan(self, question, model, error=None, history=None):
         if question in self.override:
             return SemanticQuery.from_dict(self.override[question])
-        return SemanticQuery.from_dict(self.by_question[question])
+        return self.by_question[question]
 
 
 class EvalRunnerCase(unittest.TestCase):
@@ -44,7 +36,7 @@ class EvalRunnerCase(unittest.TestCase):
         cls.model = load_sales_model()
         cls.dialect = SqliteDialect()
         cls.cases = load_cases(CASES_PATH)
-        cls.by_q = {c.question: c.expected.to_dict() for c in cls.cases}
+        cls.by_q = {c.question: c.expected for c in cls.cases}  # SemanticQuery | SQL str
 
     @classmethod
     def tearDownClass(cls):

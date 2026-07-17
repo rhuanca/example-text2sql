@@ -71,20 +71,24 @@ metrics:
     table: fact_sales
     sql: "SUM(CASE WHEN transaction_deleted = 0 THEN item_net_sales ELSE 0 END)"
     synonyms: [sales, net sales, revenue, total sales, product sales]
+    unit: usd
   - name: units_sold
     table: fact_sales
     sql: "SUM(CASE WHEN transaction_deleted = 0 THEN quantity ELSE 0 END)"
     synonyms: [units, quantity sold, items sold, volume]
+    unit: count
   - name: traffic
     table: fact_sales
     sql: >
       COUNT(DISTINCT CASE WHEN transaction_deleted = 0 AND transaction_return = 0
       THEN transaction_id END)
     synonyms: [orders, order count, checks, transactions, traffic]
+    unit: count
   - name: total_budget
     table: fact_budget
     sql: "SUM(budget_net_sales)"
     synonyms: [budget, budgeted sales, sales target, budget target, plan]
+    unit: usd
 
 examples:
   - question: "How is Cappuccino performing week over week?"

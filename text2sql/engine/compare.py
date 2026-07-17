@@ -121,28 +121,3 @@ def validate_comparison(cmp: Comparison, model: SemanticModel) -> None:
             raise CompareError(f"unknown filter field: {f.field!r}")
     if len(cmp.periods) < 2:
         raise CompareError("a comparison needs at least two periods")
-
-
-# JSON schema for the planner's emit_comparison tool (mirrors the IR filter shape).
-COMPARISON_JSON_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "metric": {"type": "string"},
-        "split_by": {"type": "string"},
-        "period_field": {"type": "string"},
-        "periods": {"type": "array", "items": {}, "minItems": 2},
-        "filters": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "field": {"type": "string"},
-                    "op": {"type": "string"},
-                    "value": {},
-                },
-                "required": ["field", "op", "value"],
-            },
-        },
-    },
-    "required": ["metric", "split_by", "period_field", "periods"],
-}

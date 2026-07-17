@@ -8,6 +8,7 @@ from text2sql.engine.dialects.sqlite import SqliteDialect
 from text2sql.engine.engine import Engine
 from text2sql.engine.executor import SqliteExecutor
 from text2sql.engine.planner import AnthropicPlanner, build_system_prompt
+from text2sql.engine.semantic_sql import parse_to_ir
 from text2sql.engine.validator import validate_ir
 from tests.util import load_sales_model
 
@@ -30,10 +31,12 @@ class TestAnthropicPlannerLive(unittest.TestCase):
         cls.planner = AnthropicPlanner()
 
     def test_produces_valid_ir(self):
-        ir = self.planner.plan(
-            "How is Dozen Glazed performing week over week?", self.model
+        sql = self.planner.plan(
+            "How is Cappuccino performing week over week?", self.model
         )
-        validate_ir(ir, self.model)  # must reference only real fields
+        self.assertIsInstance(sql, str)
+        ir = parse_to_ir(sql, self.model)  # parses + validates against the model
+        validate_ir(ir, self.model)
         self.assertTrue(ir.metrics, "planner returned no metrics")
 
     def test_end_to_end_against_sqlite(self):

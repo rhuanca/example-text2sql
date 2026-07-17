@@ -11,8 +11,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from ..engine.compare import Comparison, compile_comparison, validate_comparison
 from ..engine.compiler import compile
 from ..engine.ir import SemanticQuery
+from ..engine.semantic_sql import to_plan
 from ..engine.validator import validate_ir, validate_sql
 from ..semantic.model import SemanticModel
 from .dataset import EvalCase
@@ -26,7 +28,7 @@ class CaseResult:
     passed: bool  # execution accuracy: predicted rows == expected rows
     exact_ir: bool
     ir_score: IRScore | None = None
-    predicted: SemanticQuery | None = None
+    predicted: "SemanticQuery | Comparison | None" = None
     error: str | None = None
 
 
@@ -48,9 +50,11 @@ class Report:
 
     @property
     def exact_ir_rate(self) -> float:
-        if not self.total:
+        # over IR-scored cases only (a CASE-pivot has no IR score)
+        scored = [r for r in self.results if r.ir_score is not None]
+        if not scored:
             return 0.0
-        return sum(1 for r in self.results if r.exact_ir) / self.total
+        return sum(1 for r in scored if r.exact_ir) / len(scored)
 
     def _mean(self, pick) -> float:
         scored = [pick(r.ir_score) for r in self.results if r.ir_score]
@@ -69,9 +73,20 @@ class Report:
         return self._mean(lambda s: s.filters.f1)
 
 
-def _run_ir(ir: SemanticQuery, model, dialect, executor):
-    validate_ir(ir, model)
-    sql, params = compile(ir, model, dialect)
+def _resolve(spec, model):
+    """A case's expected / a planner's prediction is either a plan object or
+    semantic SQL (a str). Normalize a str through the engine's own to_plan."""
+    return to_plan(spec, model) if isinstance(spec, str) else spec
+
+
+def _run_plan(plan, model, dialect, executor):
+    """Compile + run a plan (SemanticQuery or a CASE-pivot Comparison)."""
+    if isinstance(plan, Comparison):
+        validate_comparison(plan, model)
+        sql, params = compile_comparison(plan, model, dialect)
+    else:
+        validate_ir(plan, model)
+        sql, params = compile(plan, model, dialect)
     validate_sql(sql)
     return executor.run(sql, params)
 
@@ -91,19 +106,26 @@ def run_suite(
         exact = False
         error = None
         try:
-            predicted = planner.plan(case.question, model)
-            ir_score = score_ir(case.expected, predicted)
-            exact = ir_score.exact
-            pred_cols, pred_rows = _run_ir(predicted, model, dialect, executor)
+            predicted = _resolve(planner.plan(case.question, model), model)
+            expected_plan = _resolve(case.expected, model)
+            # IR component scores only apply when both sides are plain queries;
+            # a CASE-pivot (Comparison) is scored by execution accuracy alone.
+            if isinstance(expected_plan, SemanticQuery) and isinstance(
+                predicted, SemanticQuery
+            ):
+                ir_score = score_ir(expected_plan, predicted)
+                exact = ir_score.exact
+            pred_cols, pred_rows = _run_plan(predicted, model, dialect, executor)
             # Pass if the prediction reproduces any acceptable reading.
-            for candidate in case.acceptable:
-                cand_cols, cand_rows = _run_ir(candidate, model, dialect, executor)
+            for spec in case.acceptable:
+                candidate = _resolve(spec, model)
+                cand_cols, cand_rows = _run_plan(candidate, model, dialect, executor)
                 if result_sets_match(
                     cand_cols,
                     cand_rows,
                     pred_cols,
                     pred_rows,
-                    ordered=bool(candidate.order_by),
+                    ordered=bool(getattr(candidate, "order_by", None)),
                 ):
                     passed = True
                     break

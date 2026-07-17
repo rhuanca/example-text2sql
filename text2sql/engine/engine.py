@@ -12,6 +12,7 @@ from .compiler import CompileError, compile
 from .dialects.base import Dialect
 from .ir import SemanticQuery
 from .planner import Planner
+from .semantic_sql import QueryShape, SemanticSqlError, compile_semantic_sql
 from .validator import ValidationError, validate_ir, validate_sql
 
 try:  # LangSmith is optional; a no-op passthrough when it isn't installed.
@@ -25,7 +26,7 @@ except ImportError:
         return args[0] if args and callable(args[0]) else decorator
 
 
-_RECOVERABLE = (ValidationError, CompileError, KeyError, sqlite3.Error)
+_RECOVERABLE = (SemanticSqlError, ValidationError, CompileError, KeyError, sqlite3.Error)
 
 
 def _trace_inputs(inputs: dict) -> dict:
@@ -48,11 +49,12 @@ def _trace_outputs(result: "Result") -> dict:
 @dataclass
 class Result:
     question: str
-    ir: SemanticQuery | Comparison  # the plan: a normal query or a period comparison
-    sql: str
+    ir: "SemanticQuery | Comparison | QueryShape"  # plan / output shape carried for charts
+    sql: str  # the compiled physical SQL that ran
     params: list
     columns: list
     rows: list
+    semantic_sql: str | None = None  # the LLM-authored semantic SQL, if any
 
 
 class EngineError(Exception):
@@ -88,15 +90,23 @@ class Engine:
                 question, self.model, error=error, history=history
             )
             try:
-                if isinstance(plan, Comparison):
-                    validate_comparison(plan, self.model)
-                    sql, params = compile_comparison(plan, self.model, self.dialect)
+                # The real planner returns semantic SQL (a str): parse + validate +
+                # compile it (a plain query, a CASE-pivot Comparison, or a window
+                # query). Test stubs may return a plan object directly.
+                if isinstance(plan, str):
+                    semantic_sql = plan
+                    sql, params, ir = compile_semantic_sql(plan, self.model, self.dialect)
                 else:
-                    validate_ir(plan, self.model)
-                    sql, params = compile(plan, self.model, self.dialect)
+                    semantic_sql, ir = None, plan
+                    if isinstance(plan, Comparison):
+                        validate_comparison(plan, self.model)
+                        sql, params = compile_comparison(plan, self.model, self.dialect)
+                    else:
+                        validate_ir(plan, self.model)
+                        sql, params = compile(plan, self.model, self.dialect)
                 validate_sql(sql)
                 columns, rows = self.executor.run(sql, params)
-                return Result(question, plan, sql, params, columns, rows)
+                return Result(question, ir, sql, params, columns, rows, semantic_sql)
             except _RECOVERABLE as e:
                 last_exc = e
                 error = f"{type(e).__name__}: {e}"

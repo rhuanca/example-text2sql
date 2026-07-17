@@ -29,7 +29,15 @@ class Filter:
 @dataclass
 class TimeWindow:
     field: str  # a date-typed dimension name
-    last_n_days: int
+    last: int  # size of the window, in `unit`s
+    unit: str = "day"  # day | week | month
+    anchor: str = "data"  # "data" = latest date present; "today" = wall clock
+
+    def __post_init__(self):
+        if self.unit not in ("day", "week", "month"):
+            raise ValueError(f"time unit must be day/week/month: {self.unit!r}")
+        if self.anchor not in ("data", "today"):
+            raise ValueError(f"time anchor must be data/today: {self.anchor!r}")
 
 
 @dataclass
@@ -48,6 +56,7 @@ class SemanticQuery:
     metrics: list[str] = field(default_factory=list)
     dimensions: list[str] = field(default_factory=list)
     filters: list[Filter] = field(default_factory=list)
+    having: list[Filter] = field(default_factory=list)  # filters on aggregated metrics
     time: TimeWindow | None = None
     order_by: list[OrderBy] = field(default_factory=list)
     limit: int | None = None
@@ -57,17 +66,23 @@ class SemanticQuery:
     def from_dict(cls, d: dict) -> "SemanticQuery":
         time = None
         if d.get("time"):
+            t = d["time"]
+            # accept the legacy `last_n_days` (day-grained) shape too
+            last = t.get("last", t.get("last_n_days"))
             time = TimeWindow(
-                field=d["time"]["field"],
-                last_n_days=int(d["time"]["last_n_days"]),
+                field=t["field"],
+                last=int(last),
+                unit=t.get("unit", "day"),
+                anchor=t.get("anchor", "data"),
             )
+        mk_filters = lambda key: [
+            Filter(f["field"], f["op"], f.get("value")) for f in d.get(key, [])
+        ]
         return cls(
             metrics=list(d.get("metrics", [])),
             dimensions=list(d.get("dimensions", [])),
-            filters=[
-                Filter(f["field"], f["op"], f.get("value"))
-                for f in d.get("filters", [])
-            ],
+            filters=mk_filters("filters"),
+            having=mk_filters("having"),
             time=time,
             order_by=[
                 OrderBy(o["field"], o.get("dir", "asc"))
@@ -82,53 +97,17 @@ class SemanticQuery:
             out["filters"] = [
                 {"field": f.field, "op": f.op, "value": f.value} for f in self.filters
             ]
+        if self.having:
+            out["having"] = [
+                {"field": f.field, "op": f.op, "value": f.value} for f in self.having
+            ]
         if self.time:
-            out["time"] = {"field": self.time.field, "last_n_days": self.time.last_n_days}
+            out["time"] = {
+                "field": self.time.field, "last": self.time.last,
+                "unit": self.time.unit, "anchor": self.time.anchor,
+            }
         if self.order_by:
             out["order_by"] = [{"field": o.field, "dir": o.dir} for o in self.order_by]
         if self.limit is not None:
             out["limit"] = self.limit
         return out
-
-
-# JSON schema used to constrain the Anthropic planner's tool output to a valid IR.
-IR_JSON_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "metrics": {"type": "array", "items": {"type": "string"}},
-        "dimensions": {"type": "array", "items": {"type": "string"}},
-        "filters": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "field": {"type": "string"},
-                    "op": {"type": "string", "enum": list(FILTER_OPS)},
-                    "value": {},
-                },
-                "required": ["field", "op", "value"],
-            },
-        },
-        "time": {
-            "type": "object",
-            "properties": {
-                "field": {"type": "string"},
-                "last_n_days": {"type": "integer"},
-            },
-            "required": ["field", "last_n_days"],
-        },
-        "order_by": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "field": {"type": "string"},
-                    "dir": {"type": "string", "enum": ["asc", "desc"]},
-                },
-                "required": ["field"],
-            },
-        },
-        "limit": {"type": "integer"},
-    },
-    "required": ["metrics", "dimensions"],
-}

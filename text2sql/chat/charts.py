@@ -23,6 +23,10 @@ class ChartSpec:
     x: str | None = None
     y: list[str] = field(default_factory=list)
     series: str | None = None
+    # "vertical" (default) or "horizontal". A single-metric categorical bar is
+    # drawn horizontally and sorted by the metric descending, so top-N reads
+    # top-to-bottom highest-first (labels stay level and legible).
+    orientation: str = "vertical"
 
 
 def is_time_like(dim_name: str) -> bool:
@@ -36,15 +40,35 @@ def _distinct_count(name: str, columns: list[str], rows: list) -> int:
     return len({r[i] for r in rows})
 
 
-def choose_chart(ir, columns: list[str], rows: list) -> ChartSpec:
-    # A period Comparison is wide (split_by + one metric column per period):
-    # grouped bar with the row bucket on x and each period as a series/column.
+def _same_unit(metrics: list[str], units: dict | None) -> bool:
+    """True iff every metric has the same known (non-None) unit — so they can
+    honestly share one axis (a grouped bar) rather than needing small multiples."""
+    if not units:
+        return False
+    seen = {units.get(m) for m in metrics}
+    return len(seen) == 1 and None not in seen
+
+
+def choose_chart(ir, columns: list[str], rows: list, units: dict | None = None) -> ChartSpec:
+    # A period Comparison is wide (split_by + one metric column per period). It is
+    # the SAME measure across periods, so it must never stack. When the periods
+    # form a rolling time trend over a plain category (period is time, split_by is
+    # not — e.g. week-over-week by product) a multi-series line reads best; else
+    # the periods are compared side by side per bucket as a grouped bar (e.g.
+    # Jan–Mar across 2025 vs 2026). The app melts the wide pivot to render either.
     if hasattr(ir, "period_field"):
-        x = ir.split_by
-        y = [c for c in columns if c != x]
+        y = [c for c in columns if c != ir.split_by]
         if not rows or not y:
             return ChartSpec("table", y=y)
-        return ChartSpec("bar", x=x, y=y)
+        if (
+            is_time_like(ir.period_field)
+            and not is_time_like(ir.split_by)
+            and len(ir.periods) >= 3  # a trend needs several points; 2 -> grouped
+        ):
+            return ChartSpec("line", x=ir.period_field, y=[ir.metric], series=ir.split_by)
+        return ChartSpec(
+            "bar", x=ir.split_by, y=y, orientation="grouped", series=ir.period_field
+        )
 
     metrics = [m for m in ir.metrics if m in columns]
 
@@ -64,8 +88,16 @@ def choose_chart(ir, columns: list[str], rows: list) -> ChartSpec:
 
     if len(effective) == 1:
         dim = effective[0]
-        kind = "line" if is_time_like(dim) else "bar"
-        return ChartSpec(kind, x=dim, y=metrics)
+        if is_time_like(dim):
+            return ChartSpec("line", x=dim, y=metrics)
+        # Two+ measures that share a unit (e.g. sales vs budget, both USD) can
+        # sit on one axis -> a grouped bar. Different units (dollars vs a count)
+        # must NOT share an axis -> small multiples (one horizontal bar each).
+        # A single measure is just a horizontal bar. The spec carries every
+        # measure in y; the render draws single / grouped / faceted accordingly.
+        if len(metrics) > 1 and _same_unit(metrics, units):
+            return ChartSpec("bar", x=dim, y=metrics, orientation="grouped")
+        return ChartSpec("bar", x=dim, y=metrics, orientation="horizontal")
 
     if len(effective) == 2:
         time_dims = [d for d in effective if is_time_like(d)]

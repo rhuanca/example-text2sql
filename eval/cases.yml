@@ -63,6 +63,13 @@ cases:
       dimensions: [product_name, iso_year, iso_week]
       filters: [{ field: product_name, op: "=", value: "Cappuccino" }]
       order_by: [{ field: iso_week, dir: asc }]
+    # "week over week" is open-ended: net sales by week (a common, simpler reading)
+    # is also correct.
+    also_accept:
+      - metrics: [total_net_sales]
+        dimensions: [iso_week]
+        filters: [{ field: product_name, op: "=", value: "Cappuccino" }]
+        order_by: [{ field: iso_week, dir: asc }]
 
   - id: online-sales
     question: "What were total net sales for online orders only?"
@@ -124,6 +131,11 @@ cases:
       metrics: [traffic]
       dimensions: [iso_year, iso_week]
       order_by: [{ field: iso_year, dir: asc }, { field: iso_week, dir: asc }]
+    # "by week" may reasonably mean iso_week alone (not split by year).
+    also_accept:
+      - metrics: [traffic]
+        dimensions: [iso_week]
+        order_by: [{ field: iso_week, dir: asc }]
 
   - id: top-products
     question: "What are the top 5 products by net sales?"
@@ -147,3 +159,32 @@ cases:
     expected:
       metrics: [total_budget]
       dimensions: []
+
+  # ---- semantic-SQL cases (reference SQL, not IR) --------------------------
+  # These exercise capabilities the LLM expresses directly in SQL: a data-anchored
+  # relative window, HAVING on an aggregate, and a CASE pivot (a period comparison).
+
+  - id: net-sales-last-6-weeks
+    question: "How did Cappuccino net sales trend over the last 6 weeks by week?"
+    tags: [time-window, relative, semantic-sql]
+    expected_sql: >
+      SELECT iso_week, total_net_sales FROM product_sales
+      WHERE product_name = 'Cappuccino' AND date >= last_period(6, 'week')
+      GROUP BY iso_week ORDER BY iso_week
+
+  - id: products-over-threshold
+    question: "Which products have more than 10000 in net sales?"
+    tags: [having, semantic-sql]
+    expected_sql: >
+      SELECT product_name, total_net_sales FROM product_sales
+      GROUP BY product_name HAVING total_net_sales > 10000
+      ORDER BY total_net_sales DESC
+
+  - id: net-sales-2025-vs-2026-by-week
+    question: "Compare net sales by week for 2025 versus 2026"
+    tags: [pivot, comparison, semantic-sql]
+    expected_sql: >
+      SELECT iso_week,
+        SUM(CASE WHEN iso_year = 2025 THEN total_net_sales END) AS ns_2025,
+        SUM(CASE WHEN iso_year = 2026 THEN total_net_sales END) AS ns_2026
+      FROM product_sales GROUP BY iso_week ORDER BY iso_week

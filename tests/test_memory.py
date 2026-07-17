@@ -3,7 +3,6 @@ the planner so follow-ups resolve. Covers the app helper that extracts turns,
 the engine forwarding the history, and the planner rendering it into the prompt.
 """
 
-import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -70,14 +69,14 @@ class TestHistoryBlock(unittest.TestCase):
 
 class _FakeBlock:
     type = "tool_use"
-    name = "emit_query"
+    name = "emit_sql"
 
     def __init__(self, tool_input):
         self.input = tool_input
 
 
 class _FakeAnthropic:
-    """Records every messages.create call and returns a fixed emit_query."""
+    """Records every messages.create call and returns a fixed emit_sql call."""
 
     def __init__(self):
         self.calls = []
@@ -86,7 +85,7 @@ class _FakeAnthropic:
     def _create(self, **kwargs):
         self.calls.append(kwargs)
         return SimpleNamespace(
-            content=[_FakeBlock({"metrics": ["total_amount"], "dimensions": ["txn_year"]})]
+            content=[_FakeBlock({"sql": "SELECT total_amount FROM qbo GROUP BY txn_year"})]
         )
 
 

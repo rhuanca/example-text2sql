@@ -20,20 +20,28 @@ class DatasetError(Exception):
     pass
 
 
+def _require_sql(value, path, case_id) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise DatasetError(f"{path}: case {case_id!r} has an empty expected_sql")
+    return value
+
+
 @dataclass
 class EvalCase:
     id: str
     question: str
-    expected: SemanticQuery
-    # Alternative IRs that are *also* a correct answer (genuine intent
-    # ambiguity, e.g. a scalar vs. grouping by the dimension you filtered on).
-    # Execution accuracy passes if the prediction matches the primary expected
-    # OR any of these; IR component scores are always measured against expected.
-    also_accept: list[SemanticQuery] = field(default_factory=list)
+    # The reference answer: either a `SemanticQuery` (from an `expected` IR block)
+    # or reference semantic SQL (a str, from `expected_sql`). The runner resolves a
+    # str through the same `to_plan` the engine uses, so cases exercise the real
+    # SQL front-end (last_period, HAVING, CASE pivots).
+    expected: "SemanticQuery | str"
+    # Alternative correct answers (genuine intent ambiguity). Execution accuracy
+    # passes if the prediction matches the primary expected OR any of these.
+    also_accept: list["SemanticQuery | str"] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
 
     @property
-    def acceptable(self) -> list[SemanticQuery]:
+    def acceptable(self) -> list["SemanticQuery | str"]:
         return [self.expected, *self.also_accept]
 
 
@@ -56,16 +64,24 @@ def load_cases(path: str | Path) -> list[EvalCase]:
         seen.add(case_id)
         if not raw.get("question"):
             raise DatasetError(f"{path}: case {case_id!r} is missing a 'question'")
-        if "expected" not in raw:
-            raise DatasetError(f"{path}: case {case_id!r} is missing 'expected'")
+        if "expected" not in raw and "expected_sql" not in raw:
+            raise DatasetError(
+                f"{path}: case {case_id!r} is missing 'expected' or 'expected_sql'"
+            )
         try:
-            expected = SemanticQuery.from_dict(raw["expected"])
+            if "expected_sql" in raw:
+                expected = _require_sql(raw["expected_sql"], path, case_id)
+            else:
+                expected = SemanticQuery.from_dict(raw["expected"])
             also_accept = [
-                SemanticQuery.from_dict(alt) for alt in raw.get("also_accept", [])
+                alt if isinstance(alt, str) else SemanticQuery.from_dict(alt)
+                for alt in raw.get("also_accept", [])
             ]
+        except DatasetError:
+            raise
         except Exception as e:  # noqa: BLE001 - re-raise with case context
             raise DatasetError(
-                f"{path}: case {case_id!r} has an invalid expected IR: {e}"
+                f"{path}: case {case_id!r} has an invalid expected: {e}"
             ) from e
         cases.append(
             EvalCase(

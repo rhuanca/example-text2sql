@@ -70,6 +70,9 @@ class Metric:
     name: str  # globally unique logical name
     sql: str  # aggregate expression over the table's physical columns
     synonyms: list[str] = field(default_factory=list)
+    # Measurement unit, used to decide whether measures can share a chart axis
+    # (same unit) and how to format their values. e.g. "usd", "count", "percent".
+    unit: str | None = None
 
 
 @dataclass
@@ -242,6 +245,7 @@ def build_model(data: dict) -> SemanticModel:
             name=m["name"],
             sql=m["sql"],
             synonyms=list(m.get("synonyms", [])),
+            unit=m.get("unit"),
         )
         for m in data.get("metrics", [])
     ]

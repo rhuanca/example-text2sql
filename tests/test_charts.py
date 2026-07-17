@@ -28,6 +28,51 @@ class TestChooseChart(unittest.TestCase):
         self.assertEqual(spec.kind, "bar")
         self.assertEqual(spec.x, "market")
 
+    def test_single_metric_category_is_horizontal(self):
+        # top-N shape: one measure over a category -> horizontal bar (rendered
+        # sorted by the measure).
+        cols = ["product_name", "units_sold"]
+        rows = [("Cappuccino", 4983), ("Vanilla Latte", 4056), ("Americano", 3491)]
+        spec = choose_chart(ir(["units_sold"], ["product_name"]), cols, rows)
+        self.assertEqual(spec.kind, "bar")
+        self.assertEqual(spec.orientation, "horizontal")
+        self.assertEqual(spec.x, "product_name")
+        self.assertEqual(spec.y, ["units_sold"])
+
+    def test_multi_metric_category_is_horizontal_small_multiples(self):
+        # units + dollars over a category: horizontal, and y carries BOTH
+        # measures so the app renders one bar chart per measure (never one axis).
+        cols = ["product_name", "total_net_sales", "units_sold"]
+        rows = [("Cappuccino", 100.0, 40), ("Americano", 80.0, 30)]
+        spec = choose_chart(
+            ir(["total_net_sales", "units_sold"], ["product_name"]), cols, rows
+        )
+        self.assertEqual(spec.kind, "bar")
+        self.assertEqual(spec.orientation, "horizontal")
+        self.assertEqual(spec.x, "product_name")
+        self.assertEqual(spec.y, ["total_net_sales", "units_sold"])
+
+    def test_same_unit_measures_group(self):
+        # both USD -> may share one axis as a grouped bar
+        cols = ["store_id", "total_net_sales", "total_budget"]
+        rows = [("ST001", 100.0, 110.0), ("ST002", 80.0, 85.0)]
+        units = {"total_net_sales": "usd", "total_budget": "usd"}
+        spec = choose_chart(
+            ir(["total_net_sales", "total_budget"], ["store_id"]), cols, rows, units=units
+        )
+        self.assertEqual(spec.kind, "bar")
+        self.assertEqual(spec.orientation, "grouped")
+
+    def test_different_unit_measures_are_small_multiples(self):
+        # dollars vs a count -> never one axis; stays horizontal small multiples
+        cols = ["product_name", "total_net_sales", "units_sold"]
+        rows = [("Cappuccino", 100.0, 40), ("Americano", 80.0, 30)]
+        units = {"total_net_sales": "usd", "units_sold": "count"}
+        spec = choose_chart(
+            ir(["total_net_sales", "units_sold"], ["product_name"]), cols, rows, units=units
+        )
+        self.assertEqual(spec.orientation, "horizontal")
+
     def test_constant_dimensions_dropped_wow_is_line(self):
         # the Dozen Glazed WoW shape: product_name + iso_year are constants
         cols = ["product_name", "iso_year", "iso_week", "total_net_sales"]

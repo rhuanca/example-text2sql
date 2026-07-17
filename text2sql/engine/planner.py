@@ -1,8 +1,10 @@
-"""Query Planner: natural language -> Semantic Query IR.
+"""Query Planner: natural language -> semantic SQL.
 
-This is the only fuzzy step. The Planner protocol lets the engine depend on an
-interface rather than a concrete LLM client; AnthropicPlanner is the real
-implementation.
+This is the only fuzzy step. The planner writes a single SQL SELECT over a
+*virtual* table whose columns are the model's dimensions and metrics; the engine
+parses + validates that against the model (`semantic_sql.py`) and lowers it to
+physical SQL. The Planner protocol lets the engine depend on an interface rather
+than a concrete LLM client; AnthropicPlanner is the real implementation.
 """
 
 from __future__ import annotations
@@ -12,8 +14,6 @@ import os
 from typing import Protocol
 
 from ..semantic.model import SemanticModel
-from .compare import COMPARISON_JSON_SCHEMA, Comparison
-from .ir import IR_JSON_SCHEMA, SemanticQuery
 
 
 class PlannerError(Exception):
@@ -27,96 +27,148 @@ class Planner(Protocol):
         model: SemanticModel,
         error: str | None = None,
         history: list | None = None,
-    ) -> SemanticQuery | Comparison:
+    ) -> str:  # semantic SQL
         ...
 
 
-_TOOL_DESC = (
-    "Emit the structured query for the user's question. Use ONLY the metrics and "
-    "dimensions defined in the semantic model. Never invent field names."
+_SQL_TOOL_DESC = (
+    "Emit ONE SQL SELECT over the semantic table for the user's question. Use only "
+    "the listed dimension and metric columns; never join or reference physical "
+    "tables or columns."
 )
 
-_COMPARE_DESC = (
-    "Emit a period comparison: the same metric across two or more periods, shown "
-    "side by side (one column per period). Use ONLY names from the semantic model."
-)
+SQL_TOOL_SCHEMA = {
+    "type": "object",
+    "properties": {"sql": {"type": "string"}},
+    "required": ["sql"],
+}
+
+
+def _examples(model: SemanticModel) -> list[str]:
+    mnames = [m.name for m in model.metrics]
+    if not mnames:
+        return []
+    m0 = mnames[0]
+    cat = next(
+        (d.name for d in model.dimensions if getattr(d, "type", None) not in ("date", "number")),
+        None,
+    )
+    date_dim = next((d.name for d in model.dimensions if getattr(d, "type", None) == "date"), None)
+    week_dim = next((d.name for d in model.dimensions if "week" in d.name.lower()), None)
+    out: list[str] = []
+    if cat:
+        out += [
+            f"Q: top 5 {cat} by {m0}",
+            f"SQL: SELECT {cat}, {m0} FROM {model.name} GROUP BY {cat} "
+            f"ORDER BY {m0} DESC LIMIT 5",
+        ]
+    if date_dim and week_dim and cat:
+        out += [
+            f"Q: {m0} week over week over the last 6 weeks",
+            f"SQL: SELECT {week_dim}, {m0} FROM {model.name} "
+            f"WHERE {date_dim} >= last_period(6, 'week') GROUP BY {week_dim} "
+            f"ORDER BY {week_dim}",
+        ]
+    year_dim = next((d.name for d in model.dimensions if "year" in d.name.lower()), None)
+    bucket = week_dim or next(
+        (d.name for d in model.dimensions if "month" in d.name.lower()), None
+    )
+    if year_dim and bucket:
+        out += [
+            f"Q: compare {m0} by {bucket} for 2025 vs 2026",
+            f"SQL: SELECT {bucket}, "
+            f"SUM(CASE WHEN {year_dim} = 2025 THEN {m0} END) AS {m0}_2025, "
+            f"SUM(CASE WHEN {year_dim} = 2026 THEN {m0} END) AS {m0}_2026 "
+            f"FROM {model.name} GROUP BY {bucket} ORDER BY {bucket}",
+        ]
+    if bucket:
+        out += [
+            f"Q: {m0} {bucket} over {bucket}, percent change",
+            f"SQL: SELECT {bucket}, {m0}, "
+            f"100.0 * ({m0} - LAG({m0}) OVER (ORDER BY {bucket})) "
+            f"/ LAG({m0}) OVER (ORDER BY {bucket}) AS pct_change "
+            f"FROM {model.name} GROUP BY {bucket} ORDER BY {bucket}",
+        ]
+    return out
 
 
 def build_system_prompt(model: SemanticModel) -> str:
     lines = [
-        "You translate natural-language questions into a structured query (an IR) "
-        "for a semantic model. You do NOT write SQL.",
-        "Select only from the metrics and dimensions listed below; resolve the "
-        "user's wording to these canonical names using the synonyms.",
-        "Always answer by calling the emit_query tool.",
+        "You translate natural-language questions into SQL over a semantic layer.",
+        f"Write ONE SQL SELECT against a single virtual table named `{model.name}`.",
+        "Its only columns are the dimensions and metrics listed below. Metrics are "
+        "already-aggregated measures — select them by name; do NOT wrap them in "
+        "SUM/COUNT/etc. Never join, never reference physical tables or columns, and "
+        "never use SELECT *.",
         "",
-        "METRICS (aggregated measures):",
+        "DIMENSIONS (group-by / filter columns):",
     ]
-    for m in model.metrics:
-        syn = f"  [synonyms: {', '.join(m.synonyms)}]" if m.synonyms else ""
-        lines.append(f"- {m.name}{syn}")
-    lines.append("")
-    lines.append("DIMENSIONS (group-by / filter attributes):")
     for d in model.dimensions:
         bits = []
         if d.synonyms:
             bits.append("synonyms: " + ", ".join(d.synonyms))
-        if d.sample_values:
+        if getattr(d, "sample_values", None):
             bits.append("examples: " + ", ".join(str(v) for v in d.sample_values))
         meta = f"  [{'; '.join(bits)}]" if bits else ""
         lines.append(f"- {d.name}{meta}")
+    lines += ["", "METRICS (already aggregated — select by name):"]
+    for m in model.metrics:
+        bits = []
+        if m.synonyms:
+            bits.append("synonyms: " + ", ".join(m.synonyms))
+        if getattr(m, "unit", None):
+            bits.append(f"unit: {m.unit}")
+        meta = f"  [{'; '.join(bits)}]" if bits else ""
+        lines.append(f"- {m.name}{meta}")
     lines += [
         "",
         "RULES:",
-        "- order_by fields must be among the selected metrics/dimensions.",
-        "- For 'last N days' style ranges use the time window (a date dimension + last_n_days).",
-        "- Filters compare a dimension to a value with one of: "
-        "=, !=, <, <=, >, >=, in, not in, like.",
-        "",
-        "PERIOD COMPARISON:",
-        "- If the user asks to COMPARE a metric across two or more periods side by "
-        "side (e.g. 'compare revenue for Jan-Mar between 2025 and 2026', "
-        "'this year vs last year by month'), call emit_comparison instead of "
-        "emit_query, with:",
-        "  - metric: the measure to compare",
-        "  - split_by: the dimension for the rows (the finer time bucket, e.g. a "
-        "month or week dimension)",
-        "  - period_field: the dimension whose values are the periods being "
-        "compared (e.g. a year dimension)",
-        "  - periods: the list of period values, one column each (e.g. [2025, 2026])",
-        "  - filters: any other constraints (e.g. classification = Revenue, or "
-        "restricting the split_by to the requested buckets)",
-        "- Otherwise, use emit_query for a normal single-answer question.",
+        "- SELECT only dimension and metric columns by name; GROUP BY every "
+        "dimension you select alongside a metric.",
+        "- WHERE compares a dimension to a literal with =, !=, <, <=, >, >=, IN, "
+        "NOT IN, or LIKE. Combine conditions with AND.",
+        "- Relative time: use last_period(N, 'day'|'week'|'month') on a date "
+        "dimension, e.g. `WHERE <date_dim> >= last_period(6, 'week')`. It resolves "
+        "to the last N periods present in the DATA — never write today's date, a "
+        "literal date range, or guessed week/month numbers.",
+        "- Filter aggregated measures with HAVING (e.g. `HAVING <metric> > 1000`).",
+        "- Rank with `ORDER BY <col> [DESC]` and `LIMIT N`.",
+        "- For 'week over week' or a trend over many periods, SELECT the time "
+        "dimension plus any category so it renders as a line (do NOT pivot).",
+        "- To compare a metric across a FEW named periods side by side (e.g. 2025 "
+        "vs 2026), write a CASE pivot: one `AGG(CASE WHEN <period_dim> = <value> "
+        "THEN <metric> END)` column per period, grouped by the row bucket — it "
+        "renders as a grouped bar. Use the metric's own aggregate (SUM for a sum "
+        "metric).",
+        "- For period-over-period change (% change, growth, running total, rank), "
+        "use a window function over a metric and GROUP BY the dimensions, e.g. "
+        "`LAG(<metric>) OVER (ORDER BY <time_dim>)`. Reference metrics by name "
+        "(they are already aggregated); alias derived columns.",
     ]
-    if model.examples:
-        lines.append("")
-        lines.append("EXAMPLES:")
-        for ex in model.examples:
-            lines.append(f"Q: {ex.question}")
-            lines.append(f"IR: {json.dumps(ex.ir)}")
+    ex = _examples(model)
+    if ex:
+        lines += ["", "EXAMPLES:"] + ex
     return "\n".join(lines)
 
 
 def _history_block(history: list) -> str:
-    """Render prior turns as a compact block the planner can use to resolve
-    follow-ups. Each turn is {"question": str, "ir": dict} (the IR that turn
-    produced), most recent last. We carry the IR, not result rows: it is the
-    compact record of what was just computed and what a refinement builds on."""
+    """Render prior turns as context so follow-ups resolve. Each turn is
+    {"question": str, "ir": dict} — the normalized query the turn produced."""
     lines = [
         "CONVERSATION SO FAR (most recent last). Use it to resolve follow-up "
         "questions like 'and for 2026' or 'break that down by class': carry over "
-        "the previous metrics/dimensions/filters unless the user changes them.",
+        "the previous columns/filters unless the user changes them.",
     ]
     for turn in history:
         lines.append(f"Q: {turn['question']}")
-        lines.append(f"IR: {json.dumps(turn['ir'])}")
+        lines.append(f"Computed: {json.dumps(turn['ir'])}")
     return "\n".join(lines)
 
 
 class AnthropicPlanner:
-    """LLM planner backed by the Anthropic API. The model output is constrained
-    to the IR JSON schema via a forced tool call, so it can only return a valid
-    Semantic Query shape."""
+    """LLM planner backed by the Anthropic API. Output is constrained to a forced
+    `emit_sql` tool call, so it returns exactly one SQL string that the engine
+    then validates against the model."""
 
     def __init__(self, client=None, model: str | None = None, max_tokens: int = 1024):
         from .. import config
@@ -130,22 +182,19 @@ class AnthropicPlanner:
             import anthropic
 
             client = anthropic.Anthropic(api_key=key)
-            # Optional LangSmith tracing: wraps the client so every
-            # messages.create (system prompt, tools, tool_choice, messages, and
-            # the response) is logged. No-op unless LANGSMITH_TRACING is set, so
-            # langsmith stays an optional dependency.
+            # Optional LangSmith tracing (no-op unless LANGSMITH_TRACING is set).
             if os.environ.get("LANGSMITH_TRACING", "").lower() in ("1", "true"):
                 from langsmith.wrappers import wrap_anthropic
 
                 client = wrap_anthropic(client)
         self.client = client
 
-    def plan(self, question, model, error=None, history=None) -> SemanticQuery:
+    def plan(self, question, model, error=None, history=None) -> str:
         content = question
         if error:
             content += (
-                f"\n\nA previous attempt failed with: {error}\n"
-                "Return a corrected query that avoids this error."
+                f"\n\nThe previous SQL failed with: {error}\n"
+                "Return corrected SQL that avoids this error."
             )
         if history:
             content = f"{_history_block(history)}\n\nCurrent question: {content}"
@@ -155,25 +204,15 @@ class AnthropicPlanner:
             system=build_system_prompt(model),
             tools=[
                 {
-                    "name": "emit_query",
-                    "description": _TOOL_DESC,
-                    "input_schema": IR_JSON_SCHEMA,
-                },
-                {
-                    "name": "emit_comparison",
-                    "description": _COMPARE_DESC,
-                    "input_schema": COMPARISON_JSON_SCHEMA,
-                },
+                    "name": "emit_sql",
+                    "description": _SQL_TOOL_DESC,
+                    "input_schema": SQL_TOOL_SCHEMA,
+                }
             ],
-            # let the model choose emit_query vs emit_comparison, but require one
-            tool_choice={"type": "any"},
+            tool_choice={"type": "tool", "name": "emit_sql"},
             messages=[{"role": "user", "content": content}],
         )
         for block in resp.content:
-            if getattr(block, "type", None) != "tool_use":
-                continue
-            if block.name == "emit_query":
-                return SemanticQuery.from_dict(block.input)
-            if block.name == "emit_comparison":
-                return Comparison.from_dict(block.input)
-        raise PlannerError("planner did not return a query or comparison tool call")
+            if getattr(block, "type", None) == "tool_use" and block.name == "emit_sql":
+                return block.input["sql"]
+        raise PlannerError("planner did not return an emit_sql tool call")

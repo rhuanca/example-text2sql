@@ -67,7 +67,7 @@ def _order_key(q: SemanticQuery):
 
 
 def _time_key(q: SemanticQuery):
-    return None if q.time is None else (q.time.field, q.time.last_n_days)
+    return None if q.time is None else (q.time.field, q.time.last, q.time.unit, q.time.anchor)
 
 
 def score_ir(expected: SemanticQuery, predicted: SemanticQuery) -> IRScore:

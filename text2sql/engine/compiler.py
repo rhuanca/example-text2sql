@@ -14,7 +14,7 @@ Filter values are always emitted as bound parameters.
 
 from __future__ import annotations
 
-from ..semantic.model import Dimension, Metric, SemanticModel
+from ..semantic.model import Dimension, SemanticModel
 from .dialects.base import Dialect
 from .ir import Filter, SemanticQuery
 
@@ -75,6 +75,11 @@ def _compile_single(ir, model, dialect, metrics, dims):
     if dims:
         sql += f"\nGROUP BY {', '.join(col(d) for d in dims)}"
 
+    having, having_params = _having(ir, model, dialect)
+    params += having_params
+    if having:
+        sql += f"\nHAVING {having}"
+
     order = _order_by(ir, qi)
     if order:
         sql += f"\nORDER BY {order}"
@@ -82,6 +87,19 @@ def _compile_single(ir, model, dialect, metrics, dims):
         sql += f"\n{dialect.limit_clause(ir.limit)}"
 
     return sql, params
+
+
+def _having(ir, model, dialect):
+    """HAVING clause: each filter is on a metric, compared to its aggregate
+    expression. Values are bound params, same as WHERE."""
+    clauses: list[str] = []
+    params: list = []
+    for f in ir.having:
+        m = model.metric(f.field)  # HAVING filters aggregated metrics only
+        clause, p = _filter_sql(f"({m.sql})", f, dialect)
+        clauses.append(clause)
+        params += p
+    return " AND ".join(clauses), params
 
 
 def _join_clause(qi, model, base, other, rel):
@@ -103,6 +121,11 @@ def _join_clause(qi, model, base, other, rel):
 def _compile_multibase(ir, model, dialect, metrics, dims):
     qi = dialect.quote_ident
     params: list = []
+
+    if ir.having:
+        raise CompileError(
+            "HAVING is not supported yet for metrics from multiple tables"
+        )
 
     # every group-by dimension must be a key shared by all base tables
     bases = sorted({m.table for m in metrics})
@@ -186,12 +209,19 @@ def _where(ir, model, dialect, qualify: bool):
 
     if ir.time:
         d = model.dimension(ir.time.field)
-        colexpr = (
-            f"{qi(model.table(d.table).table)}.{qi(d.column)}" if qualify else qi(d.column)
-        )
-        clauses.append(f"{colexpr} >= {dialect.relative_date(ir.time.last_n_days)}")
+        tbl = qi(model.table(d.table).table)
+        colexpr = f"{tbl}.{qi(d.column)}" if qualify else qi(d.column)
+        clauses.append(_time_clause(ir.time, qi(d.column), tbl, colexpr, dialect))
 
     return " AND ".join(clauses), params
+
+
+def _time_clause(t, col, tbl, colexpr, dialect) -> str:
+    """Lower a TimeWindow to `colexpr >= <anchor - last*unit>`. When anchored to
+    the data, the anchor is the latest date present, so the window is bounded at
+    the top by the data itself (fixes 'last N weeks' over future-dated data)."""
+    anchor = f"(SELECT MAX({col}) FROM {tbl})" if t.anchor == "data" else None
+    return f"{colexpr} >= {dialect.relative_date(t.last, t.unit, anchor)}"
 
 
 def _where_for_base(ir, model, dialect, base, key_cols):
@@ -214,7 +244,8 @@ def _where_for_base(ir, model, dialect, base, key_cols):
     if ir.time:
         d = model.dimension(ir.time.field)
         if d.column in base_cols or ir.time.field in key_names:
-            clauses.append(f"{qi(d.column)} >= {dialect.relative_date(ir.time.last_n_days)}")
+            tbl = qi(model.table(d.table).table)
+            clauses.append(_time_clause(ir.time, qi(d.column), tbl, qi(d.column), dialect))
 
     return " AND ".join(clauses), params
 

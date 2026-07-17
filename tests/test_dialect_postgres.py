@@ -39,7 +39,8 @@ class TestPostgresSeam(unittest.TestCase):
             }
         )
         sql, _ = compile(ir, self.model, PostgresDialect())
-        self.assertIn("CURRENT_DATE - INTERVAL '30 days'", sql)
+        self.assertIn("INTERVAL '30 days'", sql)
+        self.assertIn('MAX("date")', sql)  # data-anchored window
 
     def test_same_ir_differs_only_by_dialect(self):
         ir = SemanticQuery.from_dict(

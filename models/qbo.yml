@@ -126,18 +126,22 @@ metrics:
     table: txn
     sql: "SUM(CAST(Amount AS REAL))"
     synonyms: [amount, total, total amount, spend, revenue, expenses, net]
+    unit: usd
   - name: transaction_count
     table: txn
     sql: "COUNT(DISTINCT Num)"
     synonyms: [transactions, number of transactions, count, txn count]
+    unit: count
   - name: invoiced_amount
     table: invoices
     sql: "SUM(CAST(Amount AS REAL))"
     synonyms: [invoiced, invoice amount, billed amount, invoiced sales]
+    unit: usd
   - name: units_invoiced
     table: invoices
     sql: "SUM(CAST(SalesItemLineDetail_Qty AS REAL))"
     synonyms: [units, quantity invoiced, items invoiced]
+    unit: count
 
 examples:
   - question: "What was our total revenue this year?"

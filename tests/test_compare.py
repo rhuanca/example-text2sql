@@ -15,8 +15,6 @@ from text2sql.engine.compare import (
     validate_comparison,
 )
 from text2sql.engine.dialects.sqlite import SqliteDialect
-from text2sql.engine.engine import Engine
-from text2sql.engine.executor import SqliteExecutor
 from text2sql.semantic.model import load_model
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -112,41 +110,42 @@ class TestValidation(CompareCase):
 
 
 class TestChart(unittest.TestCase):
-    def test_comparison_is_grouped_bar(self):
-        cmp = Comparison.from_dict(REVENUE_JAN_MAR)
+    def test_periods_over_a_time_bucket_are_grouped(self):
+        # months (a time bucket) compared across years -> grouped bar, not stacked
+        cmp = Comparison.from_dict(REVENUE_JAN_MAR)  # split_by=txn_month, period=txn_year
         cols = ["txn_month", "total_amount_2025", "total_amount_2026"]
         rows = [(1, 10.0, 12.0), (2, 9.0, 11.0)]
         spec = choose_chart(cmp, cols, rows)
         self.assertEqual(spec.kind, "bar")
+        self.assertEqual(spec.orientation, "grouped")
         self.assertEqual(spec.x, "txn_month")
-        self.assertEqual(spec.y, ["total_amount_2025", "total_amount_2026"])
+
+    def test_week_over_week_by_category_is_a_line(self):
+        # rolling weeks over a plain category (product) -> multi-series line
+        cmp = Comparison.from_dict({
+            "metric": "units_sold", "split_by": "product_name",
+            "period_field": "iso_week", "periods": [50, 51, 52],
+        })
+        cols = ["product_name", "units_sold_50", "units_sold_51", "units_sold_52"]
+        rows = [("Cappuccino", 97, 97, 99), ("Vanilla Latte", 76, 76, 77)]
+        spec = choose_chart(cmp, cols, rows)
+        self.assertEqual(spec.kind, "line")
+        self.assertEqual(spec.x, "iso_week")
+        self.assertEqual(spec.series, "product_name")
 
 
-class _ComparePlanner:
-    """Test stub: always returns a fixed Comparison (no LLM)."""
+class TestPlannerSteering(unittest.TestCase):
+    def test_prompt_steers_relative_time_away_from_comparison(self):
+        from text2sql.engine.planner import build_system_prompt
 
-    def __init__(self, cmp):
-        self.cmp = cmp
-
-    def plan(self, question, model, error=None, history=None):
-        return self.cmp
+        prompt = build_system_prompt(load_model(MODEL_PATH)).lower()
+        self.assertIn("week over week", prompt)
 
 
-class TestEngineComparison(CompareCase):
-    def test_engine_runs_a_comparison(self):
-        engine = Engine(
-            self.model,
-            _ComparePlanner(Comparison.from_dict(REVENUE_JAN_MAR)),
-            self.dialect,
-            SqliteExecutor(self.db),
-        )
-        result = engine.ask("compare revenue for jan-mar between 2025 and 2026")
-        self.assertEqual(
-            result.columns, ["txn_month", "total_amount_2025", "total_amount_2026"]
-        )
-        self.assertEqual(len(result.rows), 3)
-        # the plan carried on the result is the Comparison, and serializes
-        self.assertEqual(result.ir.to_dict()["periods"], [2025, 2026])
+# NOTE: period comparisons are no longer routed through the engine as a separate
+# `Comparison` plan type — the LLM now expresses them in semantic SQL. The pivot
+# compiler + Comparison struct are retained (compile_comparison above) for Phase-2
+# chart-side pivot rendering, but the engine only handles SemanticQuery.
 
 
 if __name__ == "__main__":

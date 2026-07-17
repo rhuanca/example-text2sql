@@ -14,5 +14,6 @@ class PostgresDialect(Dialect):
     def placeholder(self) -> str:
         return "%s"
 
-    def relative_date(self, last_n_days: int) -> str:
-        return f"(CURRENT_DATE - INTERVAL '{int(last_n_days)} days')"
+    def relative_date(self, amount: int, unit: str, anchor_sql: str | None = None) -> str:
+        anchor = anchor_sql if anchor_sql else "CURRENT_DATE"
+        return f"(({anchor})::date - INTERVAL '{int(amount)} {unit}s')"

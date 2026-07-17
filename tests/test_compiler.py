@@ -84,10 +84,11 @@ class TestSingleTable(CompilerCase):
             {
                 "metrics": ["total_net_sales"],
                 "dimensions": [],
-                "time": {"field": "date", "last_n_days": 42},
+                "time": {"field": "date", "last": 42, "unit": "day"},
             }
         )
-        self.assertIn("date('now', '-42 days')", sql)
+        # window is anchored to the latest date in the data, bounded, not wall-clock
+        self.assertIn("date((SELECT MAX(\"date\") FROM \"fact_sales\"), '-42 days')", sql)
         self.assertIn('"fact_sales"."date" >=', sql)
 
     def test_order_and_limit(self):

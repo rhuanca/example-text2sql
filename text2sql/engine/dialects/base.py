@@ -20,8 +20,10 @@ class Dialect:
     def placeholder(self) -> str:
         raise NotImplementedError
 
-    def relative_date(self, last_n_days: int) -> str:
-        """SQL expression for (today - last_n_days), as a date literal."""
+    def relative_date(self, amount: int, unit: str, anchor_sql: str | None = None) -> str:
+        """SQL expression for (anchor - amount*unit), unit in day|week|month.
+        `anchor_sql` is a date expression (e.g. a `(SELECT MAX(col) FROM t)`
+        subquery for data-anchoring); None means the dialect's own 'today'."""
         raise NotImplementedError
 
     def limit_clause(self, n: int) -> str:

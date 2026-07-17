@@ -28,6 +28,9 @@ def validate_ir(ir: SemanticQuery, model: SemanticModel) -> None:
     for f in ir.filters:
         if not model.has_field(f.field):
             raise ValidationError(f"unknown filter field: {f.field!r}")
+    for h in ir.having:
+        if not _is_metric(model, h.field):
+            raise ValidationError(f"HAVING must reference a metric: {h.field!r}")
     if ir.time and not _is_dimension(model, ir.time.field):
         raise ValidationError(f"unknown time field: {ir.time.field!r}")
     selectable = set(ir.metrics) | set(ir.dimensions)

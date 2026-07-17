@@ -1,4 +1,3 @@
-import os
 import unittest
 
 from text2sql.chat.summarizer import (
