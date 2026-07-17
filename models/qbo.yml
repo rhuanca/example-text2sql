@@ -153,31 +153,33 @@ metrics:
     synonyms: [units, quantity invoiced, items invoiced]
     unit: count
 
-examples:
-  - question: "What was our total revenue this year?"
-    ir:
-      metrics: [total_amount]
-      dimensions: []
-      filters: [{ field: classification, op: "=", value: "Revenue" }]
+# Verified queries: curated question -> known-good SEMANTIC SQL (over the virtual
+# table qbo_finance). Fed to the planner as few-shot examples.
+verified_queries:
+  - question: "What was our total revenue?"
+    sql: >
+      SELECT total_amount FROM qbo_finance WHERE classification = 'Revenue'
   - question: "Show revenue by month"
-    ir:
-      metrics: [total_amount]
-      dimensions: [txn_year, txn_month]
-      filters: [{ field: classification, op: "=", value: "Revenue" }]
-      order_by: [{ field: txn_year, dir: asc }, { field: txn_month, dir: asc }]
+    sql: >
+      SELECT txn_month, total_amount FROM qbo_finance
+      WHERE classification = 'Revenue' GROUP BY txn_month ORDER BY txn_month
   - question: "Top 10 expense accounts"
-    ir:
-      metrics: [total_amount]
-      dimensions: [account_name]
-      filters: [{ field: classification, op: "=", value: "Expense" }]
-      order_by: [{ field: total_amount, dir: desc }]
-      limit: 10
+    sql: >
+      SELECT account_name, total_amount FROM qbo_finance
+      WHERE classification = 'Expense' GROUP BY account_name
+      ORDER BY total_amount DESC LIMIT 10
   - question: "Expenses by department"
-    ir:
-      metrics: [total_amount]
-      dimensions: [department]
-      filters: [{ field: classification, op: "=", value: "Expense" }]
+    sql: >
+      SELECT department, total_amount FROM qbo_finance
+      WHERE classification = 'Expense' GROUP BY department
   - question: "Invoiced amount vs posted amount by entity"
-    ir:
-      metrics: [invoiced_amount, total_amount]
-      dimensions: [entity]
+    sql: >
+      SELECT entity, invoiced_amount, total_amount FROM qbo_finance GROUP BY entity
+  # a year-over-year pivot: one revenue column per year (was eval/verified_qbo.yml)
+  - question: "compare revenue for jan, feb, and march between 2025 and 2026"
+    sql: >
+      SELECT txn_month,
+        SUM(CASE WHEN txn_year = 2025 THEN total_amount END) AS revenue_2025,
+        SUM(CASE WHEN txn_year = 2026 THEN total_amount END) AS revenue_2026
+      FROM qbo_finance WHERE classification = 'Revenue' AND txn_month IN (1, 2, 3)
+      GROUP BY txn_month ORDER BY txn_month

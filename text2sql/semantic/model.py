@@ -88,9 +88,13 @@ class Metric:
 
 
 @dataclass
-class Example:
+class VerifiedQuery:
+    """A curated question paired with known-good *semantic* SQL, fed to the planner
+    as a few-shot example (Snowflake's verified_queries)."""
+
     question: str
-    ir: dict
+    sql: str
+    verified_by: str | None = None
 
 
 @dataclass
@@ -102,7 +106,7 @@ class SemanticModel:
     dimensions: list[Dimension]
     facts: list[Fact]
     metrics: list[Metric]
-    examples: list[Example] = field(default_factory=list)
+    verified_queries: list[VerifiedQuery] = field(default_factory=list)
 
     # ---- lookups -------------------------------------------------------
     def table(self, name: str) -> Table:
@@ -265,9 +269,10 @@ def build_model(data: dict) -> SemanticModel:
         for m in data.get("metrics", [])
     ]
 
-    examples = [
-        Example(question=e["question"], ir=e.get("ir", {}))
-        for e in data.get("examples", [])
+    verified_queries = [
+        VerifiedQuery(question=q["question"], sql=q["sql"],
+                      verified_by=q.get("verified_by"))
+        for q in data.get("verified_queries", [])
     ]
 
     model = SemanticModel(
@@ -278,7 +283,7 @@ def build_model(data: dict) -> SemanticModel:
         dimensions=dimensions,
         facts=facts,
         metrics=metrics,
-        examples=examples,
+        verified_queries=verified_queries,
     )
     _validate(model)
     return model

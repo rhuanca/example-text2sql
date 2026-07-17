@@ -145,10 +145,20 @@ def build_system_prompt(model: SemanticModel) -> str:
         "`LAG(<metric>) OVER (ORDER BY <time_dim>)`. Reference metrics by name "
         "(they are already aggregated); alias derived columns.",
     ]
-    ex = _examples(model)
-    if ex:
-        lines += ["", "EXAMPLES:"] + ex
+    # Prefer the model's curated verified queries (question -> semantic SQL);
+    # fall back to generated examples for a model that declares none.
+    examples = _verified_examples(model) or _examples(model)
+    if examples:
+        lines += ["", "EXAMPLES:"] + examples
     return "\n".join(lines)
+
+
+def _verified_examples(model: SemanticModel) -> list[str]:
+    out: list[str] = []
+    for v in model.verified_queries:
+        out.append(f"Q: {v.question}")
+        out.append("SQL: " + " ".join(v.sql.split()))  # normalize folded whitespace
+    return out
 
 
 def _history_block(history: list) -> str:

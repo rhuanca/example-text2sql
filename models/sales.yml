@@ -94,19 +94,18 @@ metrics:
     synonyms: [budget, budgeted sales, sales target, budget target, plan]
     unit: usd
 
-examples:
+# Verified queries: curated question -> known-good SEMANTIC SQL (over the virtual
+# table). Fed to the planner as few-shot examples.
+verified_queries:
   - question: "How is Cappuccino performing week over week?"
-    ir:
-      metrics: [total_net_sales, units_sold]
-      dimensions: [product_name, iso_year, iso_week]
-      filters: [{ field: product_name, op: "=", value: "Cappuccino" }]
-      order_by: [{ field: iso_week, dir: asc }]
-  - question: "Net sales by market last 30 days"
-    ir:
-      metrics: [total_net_sales]
-      dimensions: [market]
-      time: { field: date, last_n_days: 30 }
+    sql: >
+      SELECT iso_week, total_net_sales, units_sold FROM product_sales
+      WHERE product_name = 'Cappuccino' GROUP BY iso_week ORDER BY iso_week
+  - question: "Net sales by market in the last 30 days"
+    sql: >
+      SELECT market, total_net_sales FROM product_sales
+      WHERE date >= last_period(30, 'day') GROUP BY market
   - question: "Budget vs actual by store"
-    ir:
-      metrics: [total_net_sales, total_budget]
-      dimensions: [store_id]
+    sql: >
+      SELECT store_id, total_net_sales, total_budget FROM product_sales
+      GROUP BY store_id

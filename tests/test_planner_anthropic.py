@@ -21,6 +21,9 @@ class TestSystemPrompt(unittest.TestCase):
         self.assertIn("total_net_sales", prompt)
         self.assertIn("product_name", prompt)
         self.assertIn("EXAMPLES:", prompt)
+        # verified queries (question + semantic SQL) are the few-shot examples
+        self.assertIn("How is Cappuccino performing week over week?", prompt)
+        self.assertIn("last_period(30, 'day')", prompt)
 
 
 @unittest.skipUnless(get_api_key(), "ANTHROPIC_API_KEY not set; skipping live test")

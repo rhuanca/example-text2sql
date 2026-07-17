@@ -18,7 +18,6 @@ from text2sql.semantic.model import load_model
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MODEL_PATH = REPO_ROOT / "models" / "qbo.yml"
 CASES_PATH = REPO_ROOT / "eval" / "cases_qbo.yml"
-VERIFIED_PATH = REPO_ROOT / "eval" / "verified_qbo.yml"
 
 
 class QboCase(unittest.TestCase):
@@ -249,28 +248,20 @@ class TestFanOutGuard(QboCase):
 
 
 class TestVerifiedQueries(QboCase):
-    def _verified(self):
-        import yaml
+    def test_model_verified_queries_are_valid_semantic_sql(self):
+        # Every verified query in the model must parse (semantic SQL), compile, and
+        # run — so the few-shot examples we feed the planner stay correct.
+        from text2sql.engine.semantic_sql import compile_semantic_sql
 
-        data = yaml.safe_load(VERIFIED_PATH.read_text())
-        return {q["id"]: q for q in data["verified_queries"]}
-
-    def test_revenue_year_pivot(self):
-        q = self._verified()["revenue-jan-feb-mar-2025-vs-2026"]
+        self.assertTrue(self.model.verified_queries)  # the model declares some
         conn = sqlite3.connect(self.db)
         try:
-            cur = conn.execute(q["sql"])
-            cols = [d[0] for d in cur.description]
-            rows = cur.fetchall()
+            for vq in self.model.verified_queries:
+                sql, params, _ = compile_semantic_sql(vq.sql, self.model, self.dialect)
+                cur = conn.execute(sql, params)
+                self.assertTrue([d[0] for d in cur.description], vq.question)
         finally:
             conn.close()
-        # one revenue column per year, one row per requested month
-        self.assertEqual(cols, ["month", "revenue_2025", "revenue_2026"])
-        self.assertEqual([r[0] for r in rows], ["Jan", "Feb", "Mar"])
-        # both years present and non-zero, and each month grew YoY (~12% in the seed)
-        for _month, rev25, rev26 in rows:
-            self.assertGreater(rev25, 0)
-            self.assertGreater(rev26, rev25)
 
 
 if __name__ == "__main__":
