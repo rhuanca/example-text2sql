@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 
 from tests.util import load_sales_model
-from text2sql.chat import app
+from text2sql.chat import app, plots
 from text2sql.chat.charts import ChartSpec
 from text2sql.engine.compare import Comparison
 
@@ -50,7 +50,7 @@ class TestAppHelpers(unittest.TestCase):
         self.assertEqual(y_enc["sort"], "-x")
         self.assertEqual(spec["layer"][0]["encoding"]["x"]["field"], "units_sold")
         # dataviz palette: bars use categorical slot 1, labels are comma-formatted
-        self.assertEqual(spec["layer"][0]["mark"]["color"], app.SERIES_1)
+        self.assertEqual(spec["layer"][0]["mark"]["color"], plots.SERIES_1)
         self.assertEqual(spec["layer"][1]["encoding"]["text"]["format"], ",")
 
     def test_horizontal_bar_shared_order(self):
@@ -115,7 +115,7 @@ class TestAppHelpers(unittest.TestCase):
         self.assertEqual(enc["color"]["field"], "measure")
         self.assertEqual(enc["yOffset"]["field"], "measure")  # side-by-side, not stacked
         self.assertEqual(enc["x"]["axis"]["format"], "$,.2f")
-        self.assertEqual(enc["color"]["scale"]["range"], [app.SERIES_1, app.SERIES_2])
+        self.assertEqual(enc["color"]["scale"]["range"], [plots.SERIES_1, plots.SERIES_2])
 
     def test_stacked_bar_stacks_and_colors_by_series(self):
         df = app.to_frame(
@@ -168,7 +168,7 @@ class TestAppHelpers(unittest.TestCase):
         self.assertEqual(enc["color"]["field"], "period")
         self.assertEqual(enc["yOffset"]["field"], "period")  # side-by-side, not stacked
         self.assertEqual(enc["x"]["axis"]["format"], "$,.2f")
-        self.assertEqual(enc["color"]["scale"]["range"], [app.SERIES_1, app.SERIES_2])
+        self.assertEqual(enc["color"]["scale"]["range"], [plots.SERIES_1, plots.SERIES_2])
 
     def test_display_frame_relabels_comparison_columns(self):
         cmp = Comparison.from_dict({
