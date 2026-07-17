@@ -29,7 +29,7 @@ class TestTableFields(unittest.TestCase):
     def test_txn_metrics(self):
         model = load_model(QBO_MODEL)
         names = {m.name for m in table_fields(model, "txn")["metrics"]}
-        self.assertEqual(names, {"total_amount", "transaction_count"})
+        self.assertEqual(names, {"total_amount", "net_income", "transaction_count"})
 
 
 class TestDot(unittest.TestCase):

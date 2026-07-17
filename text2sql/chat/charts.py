@@ -49,7 +49,8 @@ def _same_unit(metrics: list[str], units: dict | None) -> bool:
     return len(seen) == 1 and None not in seen
 
 
-def choose_chart(ir, columns: list[str], rows: list, units: dict | None = None) -> ChartSpec:
+def choose_chart(ir, columns: list[str], rows: list, units: dict | None = None,
+                 additive: dict | None = None) -> ChartSpec:
     # A period Comparison is wide (split_by + one metric column per period). It is
     # the SAME measure across periods, so it must never stack. When the periods
     # form a rolling time trend over a plain category (period is time, split_by is
@@ -104,10 +105,12 @@ def choose_chart(ir, columns: list[str], rows: list, units: dict | None = None) 
         if len(time_dims) == 1:
             x = time_dims[0]
             series = next(d for d in effective if d != x)
-            # A single measure split by a categorical over time: the segments sum
-            # to each period's total, so a stacked bar (total + composition) reads
-            # better than overlaid lines. Multiple measures stay a multi-series line.
-            if len(metrics) == 1:
+            # A single measure split by a categorical over time: if the split is
+            # additive (parts sum to the period total) a stacked bar shows total +
+            # composition. If it is contrasting (e.g. Revenue vs Expense, marked
+            # additive:false in the model) stacking their sum is meaningless, so
+            # compare with a multi-series line. Multiple measures also stay a line.
+            if len(metrics) == 1 and (not additive or additive.get(series, True)):
                 return ChartSpec("bar", x=x, y=metrics, series=series, orientation="stacked")
             return ChartSpec("line", x=x, y=metrics, series=series)
 

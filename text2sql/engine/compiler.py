@@ -57,6 +57,8 @@ def _compile_single(ir, model, dialect, metrics, dims):
         needed_tables.add(_field_table(model, f.field))
     if ir.time:
         needed_tables.add(model.dimension(ir.time.field).table)
+    for m in metrics:
+        needed_tables.update(m.joins)  # a metric's sql may read a joined table
     needed_tables.discard(base)
 
     select_parts = [f"{col(d)} AS {qi(d.name)}" for d in dims]

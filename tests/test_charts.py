@@ -112,25 +112,25 @@ class TestChooseChart(unittest.TestCase):
         self.assertEqual(spec.kind, "line")
         self.assertEqual(spec.x, "txn_month")
 
-    def test_single_measure_split_by_classification_over_month_is_stacked_bar(self):
-        # total_amount by txn_year, txn_month, classification. txn_year is constant
-        # (dropped); month is the time axis, classification the split -> one measure
-        # split over time sums to the monthly total -> stacked bar, not a table.
+    def test_contrasting_split_over_time_is_a_line_not_stacked(self):
+        # total_amount split by classification over month. Revenue/Expense are
+        # contrasting (additive:false in the model), so their sum is meaningless ->
+        # compare with a multi-series line instead of a stacked bar.
         cols = ["txn_year", "txn_month", "classification", "total_amount"]
         rows = [
             (2026, 1, "Expense", 10240.0), (2026, 1, "Revenue", 12800.0),
             (2026, 2, "Expense", 11264.0), (2026, 2, "Revenue", 14080.0),
             (2026, 3, "Expense", 12288.0), (2026, 3, "Revenue", 15360.0),
         ]
-        spec = choose_chart(
-            ir(["total_amount"], ["txn_year", "txn_month", "classification"]),
-            cols,
-            rows,
-        )
-        self.assertEqual(spec.kind, "bar")
-        self.assertEqual(spec.orientation, "stacked")
+        args = (ir(["total_amount"], ["txn_year", "txn_month", "classification"]),
+                cols, rows)
+        # contrasting -> line
+        spec = choose_chart(*args, additive={"classification": False})
+        self.assertEqual(spec.kind, "line")
         self.assertEqual(spec.x, "txn_month")
         self.assertEqual(spec.series, "classification")
+        # an additive split (default) still stacks
+        self.assertEqual(choose_chart(*args).orientation, "stacked")
 
     def test_two_categorical_dims_is_table(self):
         cols = ["market", "category_name", "total_net_sales"]

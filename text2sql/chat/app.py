@@ -134,15 +134,17 @@ def _fallback_summary(rows) -> str:
 
 
 # ---- Streamlit rendering (only runs under `streamlit run`) -----------------
-def _render_assistant(st, payload, units=None):
+def _render_assistant(st, payload, units=None, additive=None):
     units = units or {}
+    additive = additive or {}
     if payload.get("error"):
         st.error(payload["error"])
         return
     result = payload["result"]
     st.markdown(_md_safe(payload["summary"]))
 
-    spec = choose_chart(result.ir, result.columns, result.rows, units=units)
+    spec = choose_chart(result.ir, result.columns, result.rows,
+                        units=units, additive=additive)
     if hasattr(result.ir, "period_field") and spec.kind in ("line", "bar"):
         # A period comparison: melt the wide pivot and render a trend line (week
         # over week) or a grouped bar (periods side by side) — never stacked.
@@ -322,13 +324,14 @@ def main():
         st.session_state.history = []
 
     units = {m.name: m.unit for m in model.metrics}  # metric -> unit hint
+    additive = {d.name: d.additive for d in model.dimensions}  # dim -> stackable?
 
     for msg in st.session_state.history:
         with st.chat_message(msg["role"]):
             if msg["role"] == "user":
                 st.markdown(msg["text"])
             else:
-                _render_assistant(st, msg, units)
+                _render_assistant(st, msg, units, additive)
 
     if prompt := st.chat_input(ds.placeholder):
         # Prior turns become the planner's short-term memory (before we append
@@ -347,7 +350,7 @@ def main():
                 payload = {"role": "assistant", "result": result, "summary": summary}
             except EngineError as e:
                 payload = {"role": "assistant", "error": f"Sorry — I couldn't answer that: {e}"}
-            _render_assistant(st, payload, units)
+            _render_assistant(st, payload, units, additive)
             st.session_state.history.append(payload)
 
 

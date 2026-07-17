@@ -58,8 +58,33 @@ class TestModel(QboCase):
         names = {m.name for m in self.model.metrics}
         self.assertEqual(
             names,
-            {"total_amount", "transaction_count", "invoiced_amount", "units_invoiced"},
+            {"total_amount", "net_income", "transaction_count",
+             "invoiced_amount", "units_invoiced"},
         )
+
+    def test_classification_is_non_additive(self):
+        self.assertFalse(self.model.dimension("classification").additive)
+        self.assertTrue(self.model.dimension("department").additive)  # default
+        self.assertEqual(self.model.metric("net_income").joins, ["accounts"])
+
+    def test_net_income_joins_accounts_and_nets_revenue_minus_expense(self):
+        sql, rows = self.run_ir({
+            "metrics": ["net_income"], "dimensions": ["txn_month"],
+            "filters": [{"field": "txn_year", "op": "=", "value": 2026}],
+        })
+        self.assertIn("qbo_accounts", sql)  # the metric's declared join is added
+        net_by_month = {r[0]: r[1] for r in rows}
+        conn = sqlite3.connect(self.db)
+
+        def raw(klass):
+            return conn.execute(
+                "SELECT SUM(CAST(t.Amount AS REAL)) FROM qbo_txn_consolidated t "
+                "JOIN qbo_accounts a ON t.AccountID=a.Id AND t.Entity=a.Entity "
+                "WHERE t.Year=2026 AND t.Month=1 AND a.Classification=?", (klass,),
+            ).fetchone()[0]
+
+        self.assertAlmostEqual(net_by_month[1], raw("Revenue") - raw("Expense"), places=2)
+        conn.close()
 
     def test_two_fact_tables_present(self):
         metric_tables = {m.table for m in self.model.metrics}

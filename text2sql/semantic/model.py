@@ -59,6 +59,10 @@ class Dimension:
     # bare column, e.g. month = substr(date, 1, 7). Referenced unqualified (like a
     # metric's sql), so its columns must be unambiguous across the query's joins.
     expr: str | None = None
+    # Whether this dimension's values partition a measure into parts that SUM to a
+    # meaningful whole (True -> stackable, e.g. account) vs. contrasting facts that
+    # do not (False -> charts compare instead of stack, e.g. Revenue/Expense).
+    additive: bool = True
 
 
 @dataclass
@@ -77,6 +81,10 @@ class Metric:
     # Measurement unit, used to decide whether measures can share a chart axis
     # (same unit) and how to format their values. e.g. "usd", "count", "percent".
     unit: str | None = None
+    # Tables the sql references beyond `table` (e.g. a metric that reads a joined
+    # dimension column); the compiler joins them in. e.g. net_income reading
+    # accounts.Classification declares joins: [accounts].
+    joins: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -235,6 +243,7 @@ def build_model(data: dict) -> SemanticModel:
             synonyms=list(d.get("synonyms", [])),
             sample_values=list(d.get("sample_values", [])),
             expr=d.get("expr"),
+            additive=d.get("additive", True),
         )
         for d in data.get("dimensions", [])
     ]
@@ -251,6 +260,7 @@ def build_model(data: dict) -> SemanticModel:
             sql=m["sql"],
             synonyms=list(m.get("synonyms", [])),
             unit=m.get("unit"),
+            joins=list(m.get("joins", [])),
         )
         for m in data.get("metrics", [])
     ]

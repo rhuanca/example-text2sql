@@ -80,7 +80,9 @@ dimensions:
       synonyms: [account, gl account, ledger account],
       sample_values: ["Product Sales", "Rent Expense", "Payroll Expense"] }
   # ---- accounts (qbo_accounts), reached by join ----
-  - { table: accounts, name: classification, column: Classification,
+  # additive:false — Revenue/Expense are contrasting facts, not parts of a whole,
+  # so charts compare (grouped/lines) rather than stack them.
+  - { table: accounts, name: classification, column: Classification, additive: false,
       synonyms: [account classification, revenue vs expense, pnl bucket],
       sample_values: ["Revenue", "Expense", "Asset", "Liability", "Equity"] }
   - { table: accounts, name: account_type, column: AccountType,
@@ -127,6 +129,14 @@ metrics:
     sql: "SUM(CAST(Amount AS REAL))"
     synonyms: [amount, total, total amount, spend, revenue, expenses, net]
     unit: usd
+  # net income = revenue - expense. Reads accounts.Classification for the sign, so
+  # it declares that join (data stores expense amounts positive).
+  - name: net_income
+    table: txn
+    sql: "SUM(CASE WHEN Classification = 'Revenue' THEN CAST(Amount AS REAL) ELSE -CAST(Amount AS REAL) END)"
+    synonyms: [net income, profit, net profit, bottom line, earnings]
+    unit: usd
+    joins: [accounts]
   - name: transaction_count
     table: txn
     sql: "COUNT(DISTINCT Num)"
