@@ -110,15 +110,28 @@ class TestValidation(CompareCase):
 
 
 class TestChart(unittest.TestCase):
-    def test_periods_over_a_time_bucket_are_grouped(self):
-        # months (a time bucket) compared across years -> grouped bar, not stacked
+    def test_periods_over_a_time_bucket_are_clustered_columns(self):
+        # months (a time bucket) compared across years -> vertical clustered columns
         cmp = Comparison.from_dict(REVENUE_JAN_MAR)  # split_by=txn_month, period=txn_year
         cols = ["txn_month", "total_amount_2025", "total_amount_2026"]
         rows = [(1, 10.0, 12.0), (2, 9.0, 11.0)]
         spec = choose_chart(cmp, cols, rows)
         self.assertEqual(spec.kind, "bar")
-        self.assertEqual(spec.orientation, "grouped")
+        self.assertEqual(spec.orientation, "clustered")  # vertical, not horizontal
         self.assertEqual(spec.x, "txn_month")
+
+    def test_periods_over_a_categorical_bucket_stay_grouped(self):
+        # a non-time bucket (department) keeps the horizontal grouped bar
+        cmp = Comparison.from_dict({
+            "metric": "total_amount", "split_by": "department",
+            "period_field": "classification", "periods": ["Revenue", "Expense"],
+        })
+        cols = ["department", "total_amount_Revenue", "total_amount_Expense"]
+        rows = [("Retail", 100.0, 60.0), ("Wholesale", 80.0, 50.0)]
+        spec = choose_chart(cmp, cols, rows)
+        self.assertEqual(spec.kind, "bar")
+        self.assertEqual(spec.orientation, "grouped")
+        self.assertEqual(spec.x, "department")
 
     def test_week_over_week_by_category_is_a_line(self):
         # rolling weeks over a plain category (product) -> multi-series line

@@ -286,6 +286,43 @@ def comparison_grouped_bar(long: pd.DataFrame, category: str, period_field: str,
     )
 
 
+def vertical_grouped_bar(long: pd.DataFrame, category: str, period_field: str,
+                         periods: list, fmt=",", x_type: str | None = None):
+    """Vertical clustered columns for a period comparison over a time bucket: one
+    colored bar per period within each time category, side by side (never stacked),
+    ordered chronologically along the x-axis. Month categories render friendly
+    ("2026-04" -> "Apr 2026"). Contrast with `comparison_grouped_bar`, which is
+    horizontal and value-sorted for a categorical bucket."""
+    import altair as alt
+
+    long, xsort = _month_axis(long, category, x_type)
+    data = long.copy()
+    data["period"] = data["period"].astype(str)
+    domain = [str(p) for p in periods]
+    return (
+        alt.Chart(data)
+        .mark_bar(cornerRadiusEnd=4)
+        .encode(
+            x=alt.X(f"{category}:O", title=category.replace("_", " "), sort=xsort,
+                    axis=alt.Axis(labelColor=INK_SECONDARY, domainColor=AXIS_LINE,
+                                  ticks=False)),
+            xOffset="period:N",  # side-by-side per period, never stacked
+            y=alt.Y("value:Q", title=None,
+                    axis=alt.Axis(format=fmt, labelColor=INK_MUTED, grid=True)),
+            color=alt.Color("period:N", title=period_field, sort=domain,
+                            scale=alt.Scale(domain=domain, range=PALETTE[:len(periods)]),
+                            legend=alt.Legend(orient="top")),
+            tooltip=[
+                alt.Tooltip(f"{category}:N", title=category.replace("_", " ")),
+                alt.Tooltip("period:N", title=period_field),
+                alt.Tooltip("value:Q", format=fmt),
+            ],
+        )
+        .properties(height=340)
+        .configure_view(strokeWidth=0)
+    )
+
+
 def line_chart(df: pd.DataFrame, x: str, value: str, color: str | None = None, fmt=",",
                x_type: str | None = None):
     """A time-series line in the dataviz palette: `value` over an ordered `x`, with

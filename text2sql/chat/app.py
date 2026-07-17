@@ -38,6 +38,7 @@ from text2sql.chat.plots import (
     _display_frame, _fmt_number, _md_safe, _percent_measure, chart_frame,
     comparison_grouped_bar, comparison_long, d3_format, grouped_bar,
     horizontal_bar, line_chart, line_panel, stacked_bar, to_frame,
+    vertical_grouped_bar,
 )
 from text2sql.chat.summarizer import AnthropicSummarizer, MockSummarizer
 
@@ -154,6 +155,14 @@ def _render_assistant(st, payload, units=None, additive=None, types=None):
         if spec.kind == "line":
             st.altair_chart(
                 line_chart(long, "period", "value", color=result.ir.split_by, fmt=fmt),
+                use_container_width=True,
+            )
+        elif spec.orientation == "clustered":
+            # bucket is a time axis -> vertical clustered columns, chronological
+            st.altair_chart(
+                vertical_grouped_bar(long, result.ir.split_by, result.ir.period_field,
+                                     result.ir.periods, fmt=fmt,
+                                     x_type=types.get(result.ir.split_by)),
                 use_container_width=True,
             )
         else:

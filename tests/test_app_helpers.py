@@ -187,6 +187,26 @@ class TestAppHelpers(unittest.TestCase):
         self.assertEqual(enc["x"]["axis"]["format"], "$,.2f")
         self.assertEqual(enc["color"]["scale"]["range"], [plots.SERIES_1, plots.SERIES_2])
 
+    def test_vertical_grouped_bar_is_vertical_and_chronological(self):
+        cmp = Comparison.from_dict({
+            "metric": "total_amount", "split_by": "month",
+            "period_field": "classification", "periods": ["Revenue", "Expense"],
+        })
+        cols = ["month", "total_amount_Revenue", "total_amount_Expense"]
+        long = app.comparison_long(cmp, cols, [("2026-04", 120.0, 90.0),
+                                               ("2026-03", 100.0, 80.0)])
+        spec = app.vertical_grouped_bar(
+            long, "month", "classification", ["Revenue", "Expense"],
+            fmt="$,.2f", x_type="month",
+        ).to_dict()
+        enc = spec["encoding"]
+        self.assertEqual(enc["x"]["field"], "month")          # category on x -> vertical
+        self.assertEqual(enc["xOffset"]["field"], "period")   # side-by-side, not stacked
+        self.assertEqual(enc["y"]["axis"]["format"], "$,.2f")
+        self.assertEqual(enc["color"]["scale"]["range"], [plots.SERIES_1, plots.SERIES_2])
+        # month labels friendly + chronological (not value-sorted)
+        self.assertEqual(enc["x"]["sort"], ["Mar 2026", "Apr 2026"])
+
     def test_display_frame_relabels_comparison_columns(self):
         cmp = Comparison.from_dict({
             "metric": "units_sold", "split_by": "product_name",

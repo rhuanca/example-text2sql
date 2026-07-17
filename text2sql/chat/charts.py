@@ -68,8 +68,12 @@ def choose_chart(ir, columns: list[str], rows: list, units: dict | None = None,
             and len(ir.periods) >= 3  # a trend needs several points; 2 -> grouped
         ):
             return ChartSpec("line", x=ir.period_field, y=[ir.metric], series=ir.split_by)
+        # A time bucket (e.g. revenue vs expense per month) reads best as vertical
+        # clustered columns, chronological; a categorical bucket (e.g. by store) stays
+        # a horizontal grouped bar sorted by value.
+        orientation = "clustered" if is_time_like(ir.split_by, types) else "grouped"
         return ChartSpec(
-            "bar", x=ir.split_by, y=y, orientation="grouped", series=ir.period_field
+            "bar", x=ir.split_by, y=y, orientation=orientation, series=ir.period_field
         )
 
     metrics = [m for m in ir.metrics if m in columns]
