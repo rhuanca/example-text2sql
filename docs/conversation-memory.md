@@ -58,23 +58,26 @@ sequenceDiagram
     participant App as app.py (Streamlit)
     participant SS as st.session_state.history
     participant Eng as Engine.ask
+    participant RW as AnthropicRewriter
     participant Pl as AnthropicPlanner.plan
-    participant LLM as Anthropic client<br/>(wrap_anthropic)
     participant DB as SQLite
 
-    U->>App: "only for 2026"
+    Note over U,SS: prior turn scoped to entity = 'Contoso SAS'
+    U->>App: "revenue of the past 6 days"
     App->>SS: recent_turns(history, limit=4)
     SS-->>App: [{question, ir}, …]  (answered turns only, IR not rows)
     Note over App,SS: computed BEFORE appending the new prompt,<br/>so the question is not fed back to itself
     App->>SS: append {role:"user", text}
     App->>Eng: ask(question, history=history)
 
+    Eng->>RW: rewrite(question, history)
+    Note over RW: decontextualize — carry prior scope forward<br/>unless the user broadens / clears it
+    RW-->>Eng: "revenue of the past 6 days for Contoso SAS"
+
     rect rgb(238,244,255)
     loop repair loop — max_retries+1 attempts
-        Eng->>Pl: plan(question, model, error, history)
-        Note over Pl: content = _history_block(history)<br/>+ "\n\nCurrent question: " + question<br/>(+ prior error text on a retry)
-        Pl->>LLM: messages.create(system=build_system_prompt(model),<br/>tools=[emit_sql], tool_choice="emit_sql")
-        LLM-->>Pl: tool_use → semantic SQL
+        Eng->>Pl: plan(standalone question, model, error, history=None)
+        Note over Pl: question already stands alone,<br/>so no history block is needed
         Pl-->>Eng: semantic SQL → parse + validate → IR
         Eng->>Eng: validate_ir + compile  (deterministic)
         Eng->>DB: run(sql, params)
@@ -82,7 +85,7 @@ sequenceDiagram
     end
     end
 
-    Eng-->>App: Result(ir, sql, params, columns, rows)
+    Eng-->>App: Result(ir, sql, …, rewritten)
     App->>SS: append {role:"assistant", result}
     Note over SS: this turn's IR becomes memory for the next turn
 ```
@@ -98,7 +101,7 @@ CONVERSATION SO FAR (most recent last). Use it to resolve follow-up questions
 like 'and for 2026' or 'break that down by class': carry over the previous
 metrics/dimensions/filters unless the user changes them.
 Q: show revenue by month
-IR: {"metrics": ["total_amount"], "dimensions": ["txn_month"]}
+Computed: {"metrics": ["total_amount"], "dimensions": ["txn_month"]}
 
 Current question: only for 2026
 ```
@@ -121,15 +124,15 @@ flowchart LR
         H --> RT
     end
     subgraph ENG["engine/"]
-        A["Engine.ask(question, history)<br/>forwards history each retry"]
-        P["AnthropicPlanner.plan(…, history)"]
-        HB["_history_block()"]
-        A --> P --> HB
+        A["Engine.ask(question, history)"]
+        RW["AnthropicRewriter.rewrite()<br/>→ standalone question"]
+        P["AnthropicPlanner.plan()<br/>(history = None)"]
+        A --> RW --> P
     end
     RT -- "[{question, ir}]" --> A
-    HB -- "prepended to user msg" --> LLM["Anthropic (tool call → IR)"]
-    LLM --> CMP["validate + compile + execute<br/>(deterministic)"]
-    CMP -- Result --> H
+    P -- "emit_sql" --> LLM["Anthropic → semantic SQL"]
+    LLM --> CMP["parse + validate + compile + execute<br/>(deterministic)"]
+    CMP -- "Result(…, rewritten)" --> H
 ```
 
 ## Key technical points
