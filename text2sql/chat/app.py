@@ -31,6 +31,7 @@ from text2sql.engine.dialects.sqlite import SqliteDialect
 from text2sql.engine.engine import Engine, EngineError
 from text2sql.engine.executor import SqliteExecutor
 from text2sql.engine.planner import AnthropicPlanner, PlannerError
+from text2sql.engine.rewriter import AnthropicRewriter
 from text2sql.semantic.model import load_model
 from text2sql.chat.charts import choose_chart
 from text2sql.chat.model_map import model_to_dot, table_fields
@@ -115,7 +116,8 @@ def build_engine(dataset_key: str = DEFAULT_DATASET) -> Engine:
     if not get_api_key():
         raise PlannerError("ANTHROPIC_API_KEY is not set — the chat app needs it.")
     planner = AnthropicPlanner()
-    return Engine(model, planner, SqliteDialect(), SqliteExecutor(ds.db_path))
+    return Engine(model, planner, SqliteDialect(), SqliteExecutor(ds.db_path),
+                  rewriter=AnthropicRewriter())
 
 
 def build_summarizer():
@@ -143,6 +145,9 @@ def _render_assistant(st, payload, units=None, additive=None, types=None):
         st.error(payload["error"])
         return
     result = payload["result"]
+    if getattr(result, "rewritten", None):
+        # scope carried from earlier turns — show it so it's transparent + reversible
+        st.caption(f"Interpreted as: {result.rewritten}")
     st.markdown(_md_safe(payload["summary"]))
 
     spec = choose_chart(result.ir, result.columns, result.rows,

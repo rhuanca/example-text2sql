@@ -55,6 +55,7 @@ class Result:
     columns: list
     rows: list
     semantic_sql: str | None = None  # the LLM-authored semantic SQL, if any
+    rewritten: str | None = None  # the standalone question, if a rewrite carried scope
 
 
 class EngineError(Exception):
@@ -69,12 +70,14 @@ class Engine:
         dialect: Dialect,
         executor,
         max_retries: int = 1,
+        rewriter=None,
     ):
         self.model = model
         self.planner = planner
         self.dialect = dialect
         self.executor = executor
         self.max_retries = max_retries
+        self.rewriter = rewriter
 
     @traceable(
         run_type="chain",
@@ -83,11 +86,20 @@ class Engine:
         process_outputs=_trace_outputs,
     )
     def ask(self, question: str, history: list | None = None) -> Result:
+        # Conversational scope carries here: a rewriter decontextualizes the
+        # follow-up into a standalone question, so the planner plans that instead
+        # (with no history block — the question already stands alone). Without a
+        # rewriter, fall back to threading `history` into the planner's prompt.
+        used_rewrite = bool(self.rewriter and history)
+        asked = self.rewriter.rewrite(question, history) if used_rewrite else question
+        hist = None if used_rewrite else history
+        rewritten = asked if (used_rewrite and asked.strip() != question.strip()) else None
+
         error: str | None = None
         last_exc: Exception | None = None
         for _ in range(self.max_retries + 1):
             plan = self.planner.plan(
-                question, self.model, error=error, history=history
+                asked, self.model, error=error, history=hist
             )
             try:
                 # The real planner returns semantic SQL (a str): parse + validate +
@@ -106,7 +118,8 @@ class Engine:
                         sql, params = compile(plan, self.model, self.dialect)
                 validate_sql(sql)
                 columns, rows = self.executor.run(sql, params)
-                return Result(question, ir, sql, params, columns, rows, semantic_sql)
+                return Result(question, ir, sql, params, columns, rows,
+                              semantic_sql, rewritten=rewritten)
             except _RECOVERABLE as e:
                 last_exc = e
                 error = f"{type(e).__name__}: {e}"

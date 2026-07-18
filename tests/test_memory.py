@@ -117,14 +117,16 @@ class TestPlannerPromptCarriesHistory(unittest.TestCase):
 
 
 class _CapturingPlanner:
-    """Records the history it was given, returns a fixed valid IR."""
+    """Records the question + history it was given, returns a fixed valid IR."""
 
     def __init__(self, ir):
         self.ir = ir
         self.seen = []
+        self.questions = []
 
     def plan(self, question, model, error=None, history=None):
         self.seen.append(history)
+        self.questions.append(question)
         return self.ir
 
 
@@ -149,6 +151,48 @@ class TestEngineForwardsHistory(unittest.TestCase):
 
         self.assertEqual(planner.seen[0], history)  # forwarded verbatim
         self.assertIn("total_amount", result.columns)  # and still executes
+
+
+class _ScopeRewriter:
+    """Stub rewriter: appends a carried entity scope to the question."""
+
+    def rewrite(self, question, history):
+        return f"{question} for Contoso SAS"
+
+
+class TestEngineRewrite(TestEngineForwardsHistory):
+    """With a rewriter, the engine plans the STANDALONE question and drops the
+    history block (the rewrite subsumes carryover); without one, history is
+    forwarded (inherited from the parent case)."""
+
+    def _planner(self):
+        return _CapturingPlanner(
+            SemanticQuery.from_dict({"metrics": ["total_amount"], "dimensions": ["entity"]})
+        )
+
+    def test_rewrite_replaces_question_and_drops_history(self):
+        planner = self._planner()
+        engine = Engine(self.model, planner, SqliteDialect(), SqliteExecutor(self.db),
+                        rewriter=_ScopeRewriter())
+        history = [{"question": "summary of Contoso SAS",
+                    "ir": {"metrics": ["total_amount"],
+                           "filters": [{"field": "entity", "op": "=",
+                                        "value": "Contoso SAS"}]}}]
+        result = engine.ask("revenue of the past 6 days", history=history)
+
+        self.assertEqual(planner.questions[0],
+                         "revenue of the past 6 days for Contoso SAS")  # standalone
+        self.assertIsNone(planner.seen[0])  # history block dropped (rewrite subsumes it)
+        self.assertEqual(result.rewritten, "revenue of the past 6 days for Contoso SAS")
+        self.assertEqual(result.question, "revenue of the past 6 days")  # original kept
+
+    def test_no_rewriter_leaves_rewritten_unset(self):
+        planner = self._planner()
+        engine = Engine(self.model, planner, SqliteDialect(), SqliteExecutor(self.db))
+        result = engine.ask("only for 2026",
+                            history=[{"question": "q", "ir": PRIOR_IR}])
+        self.assertIsNone(result.rewritten)
+        self.assertEqual(planner.questions[0], "only for 2026")  # not rewritten
 
 
 if __name__ == "__main__":

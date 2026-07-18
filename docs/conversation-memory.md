@@ -5,9 +5,32 @@ Short-term memory that lets the assistant resolve **follow-up** questions
 turns. It is intentionally minimal: in-session only, no persistence, no
 summarization.
 
-The one invariant it must not break: **the LLM still only emits IR**
-(`SemanticQuery` / `Comparison`), never SQL. Memory is extra *context* on the
-prompt; everything from the IR onward stays deterministic.
+The one invariant it must not break: **everything from the IR onward stays
+deterministic.** Memory is extra *context* the LLM sees; the planner still emits
+only validated semantic SQL (`emit_sql`), parsed and checked against the model
+before anything runs.
+
+## How scope carries: a query-rewrite step
+
+Carryover is **not** left to the planner's judgment. Before planning, an optional
+`Rewriter` (`engine/rewriter.py`, wired in the chat app) **decontextualizes** the
+follow-up into a standalone question using the recent turns — carrying forward the
+active scope (a pinned entity, time range, classification) unless the user names a
+different value, **broadens** ("all", "overall", "combined"), or **clears** ("reset",
+"ignore that"). The planner then plans that self-contained question, so a filter like
+`entity = 'Contoso SAS'` survives a new-metric follow-up ("revenue of the past 6
+days") instead of silently vanishing. This mirrors Snowflake Cortex Analyst's design.
+
+```text
+"revenue of the past 6 days"  + prior scope entity = 'Contoso SAS'
+        → AnthropicRewriter →  "revenue of the past 6 days for Contoso SAS"  → planner
+```
+
+The rewritten question is exposed on `Result.rewritten` and shown in the UI as
+"Interpreted as: …", so a carried (or mistakenly over-attached) scope is visible and
+reversible. `Engine.ask` runs the rewrite only when a rewriter is configured **and**
+there is history; otherwise it falls back to threading `history` into the planner's
+prompt via `_history_block` (below) — the mechanism used by eval stubs and tests.
 
 ## What is remembered
 
@@ -50,9 +73,9 @@ sequenceDiagram
     loop repair loop — max_retries+1 attempts
         Eng->>Pl: plan(question, model, error, history)
         Note over Pl: content = _history_block(history)<br/>+ "\n\nCurrent question: " + question<br/>(+ prior error text on a retry)
-        Pl->>LLM: messages.create(system=build_system_prompt(model),<br/>tools=[emit_query, emit_comparison], tool_choice="any")
-        LLM-->>Pl: tool_use → SemanticQuery | Comparison
-        Pl-->>Eng: plan (IR only — never SQL)
+        Pl->>LLM: messages.create(system=build_system_prompt(model),<br/>tools=[emit_sql], tool_choice="emit_sql")
+        LLM-->>Pl: tool_use → semantic SQL
+        Pl-->>Eng: semantic SQL → parse + validate → IR
         Eng->>Eng: validate_ir + compile  (deterministic)
         Eng->>DB: run(sql, params)
         DB-->>Eng: columns, rows

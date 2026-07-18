@@ -252,6 +252,33 @@ class TestAppHelpers(unittest.TestCase):
         spec = app.line_chart(df, "month", "total_amount", x_type="month").to_dict()
         self.assertEqual(spec["encoding"]["x"]["sort"], ["Mar 2026", "Apr 2026"])
 
+    def test_render_shows_interpreted_as_when_rewritten(self):
+        from text2sql.engine.ir import SemanticQuery
+
+        class _Ctx:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        class _FakeSt:
+            def __init__(self): self.captions = []
+            def caption(self, text): self.captions.append(text)
+            def columns(self, spec):
+                return [self] * (spec if isinstance(spec, int) else len(spec))
+            def expander(self, *a, **k): return _Ctx()
+            def __getattr__(self, name):  # markdown/dataframe/altair_chart/code/... no-op
+                return lambda *a, **k: None
+
+        result = SimpleNamespace(
+            ir=SemanticQuery(metrics=["total_net_sales"], dimensions=["market"]),
+            columns=["market", "total_net_sales"], rows=[("Houston", 100.0), ("Dallas", 80.0)],
+            sql="SELECT ...", semantic_sql=None,
+            rewritten="revenue of the past 6 days for Contoso SAS",
+        )
+        st = _FakeSt()
+        app._render_assistant(st, {"result": result, "summary": "hi"})
+        self.assertTrue(any(c == "Interpreted as: revenue of the past 6 days for Contoso SAS"
+                            for c in st.captions))
+
     def test_safe_summarize_falls_back_on_error(self):
         class Boom:
             def summarize(self, *a):
