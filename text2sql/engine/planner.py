@@ -100,9 +100,17 @@ def build_system_prompt(model: SemanticModel) -> str:
         "already-aggregated measures — select them by name; do NOT wrap them in "
         "SUM/COUNT/etc. Never join, never reference physical tables or columns, and "
         "never use SELECT *.",
-        "",
-        "DIMENSIONS (group-by / filter columns):",
     ]
+    about = [t for t in model.tables if t.description or t.grain]
+    if about:
+        lines += ["", "ABOUT THE DATA (background only — you still write ONE SELECT "
+                  f"over `{model.name}`; the engine resolves any joins for you):"]
+        for t in about:
+            desc = " ".join(t.description.split()) if t.description else ""
+            grain = f"(grain: {t.grain})" if t.grain else ""
+            body = " ".join(p for p in [desc, grain] if p)
+            lines.append(f"- {t.name} — {body}")
+    lines += ["", "DIMENSIONS (group-by / filter columns):"]
     for d in model.dimensions:
         bits = []
         if d.synonyms:

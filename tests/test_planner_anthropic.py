@@ -25,6 +25,15 @@ class TestSystemPrompt(unittest.TestCase):
         self.assertIn("How is Cappuccino performing week over week?", prompt)
         self.assertIn("last_period(30, 'day')", prompt)
 
+    def test_prompt_carries_table_and_object_descriptions(self):
+        prompt = build_system_prompt(load_sales_model())
+        # table descriptions + grain are surfaced as background
+        self.assertIn("ABOUT THE DATA", prompt)
+        self.assertIn("one row per product line per transaction", prompt)  # grain
+        self.assertIn("product-level transaction", prompt)                 # description
+        # a field description migrated from a YAML comment reaches the prompt
+        self.assertIn("year-agnostic", prompt)  # month_of_year description
+
 
 @unittest.skipUnless(get_api_key(), "ANTHROPIC_API_KEY not set; skipping live test")
 class TestAnthropicPlannerLive(unittest.TestCase):

@@ -8,21 +8,21 @@ tables:
     grain: "one row per product line per transaction"
     description: >
       Combined in-store (NCR/POS) and online (OLO) product-level transaction
-      detail. One order has many rows. Use item_net_sales for line-additive
-      revenue and COUNT(DISTINCT transaction_id) for distinct order counts.
+      detail. One order has many rows.
   - name: dim_store
     table: dim_store
     primary_key: store_id
     description: >
-      Store/franchise master dimension. One row per store. Geography, ownership
-      type, and lifecycle status. Join key to all other tables: store_id.
+      Store/franchise master: one row per store, with geography, ownership type,
+      and lifecycle status.
+  # fact_budget is aggregated separately from fact_sales and joined on store_id
+  # (the fan-out guard), so budget rows never fan out against raw sales lines.
   - name: fact_budget
     table: fact_budget
     grain: "one row per store per calendar day"
-    keys: [store_id]   # join key to dim_store (aggregated separately from fact_sales)
+    keys: [store_id]
     description: >
-      Planned daily net sales targets. One row per store per day. Aggregate
-      separately from fact_sales and join on store_id + date for budget vs actual.
+      Planned daily net sales targets. One row per store per day.
 
 relationships:
   - { from: fact_sales.store_id, to: dim_store.store_id }
@@ -41,15 +41,14 @@ dimensions:
       sample_values: ["At Shop", "Online"] }
   - { table: fact_sales, name: date, column: date, type: date,
       synonyms: [business date, transaction date, day] }
-  # derived dimension: calendar month "YYYY-MM" from the date (no month column)
   - { table: fact_sales, name: month, expr: "substr(date, 1, 7)", type: month,
+      description: "Calendar month as YYYY-MM (one bucket per month per year).",
       synonyms: [month, calendar month, year month],
       sample_values: ["2026-07", "2026-08"] }
-  # numeric month-of-year (1-12): a year-agnostic bucket, so Jan 2025 and Jan 2026
-  # share a bucket — use it to compare the same month across years. The UI renders
-  # it as "Jan".."Dec". (Calendar `month` above is year-specific and never shares.)
   - { table: fact_sales, name: month_of_year, expr: "CAST(substr(date, 6, 2) AS INTEGER)",
-      type: month, synonyms: [month number, month of year, seasonal month],
+      type: month,
+      description: "Month of year 1-12, year-agnostic — compare the same month across years (e.g. Jan 2025 vs Jan 2026).",
+      synonyms: [month number, month of year, seasonal month],
       sample_values: [1, 2, 12] }
   - { table: fact_sales, name: iso_week, column: iso_week, type: week,
       synonyms: [week, week number] }

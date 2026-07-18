@@ -5,40 +5,39 @@ dialect: sqlite
 # The LLM never emits SQL; it only picks the metrics/dimensions/filters below.
 
 tables:
+  # Amount is a signed value stored as text (the compiler casts it); classification
+  # lives on qbo_accounts and is reached by a join the engine resolves.
   - name: txn
     table: qbo_txn_consolidated
     grain: "one GL posting line (one transaction line hitting one account)"
     keys: [AccountID, Account_Number, Num]  # join keys + transaction id
     description: >
-      Consolidated Transaction Detail by Account across all entities and
-      transaction types. Amount is a signed value stored as text; the compiler
-      casts it. Revenue vs expense is sliced with a filter on `classification`
-      (reached by joining qbo_accounts), not by separate metrics.
+      Consolidated general-ledger transaction detail across all entities and
+      transaction types. Revenue vs expense is a filter on classification.
+  # invoices is aggregated separately from txn and joined on Entity (the fan-out
+  # guard) for invoiced-vs-posted comparisons.
   - name: invoices
     table: qbo_invoices
     grain: "one invoice line"
-    keys: [Entity]  # shared multi-base group-by key with txn
+    keys: [Entity]
     description: >
-      A/R sales invoice lines. Aggregate separately from txn and join on Entity
-      for invoiced-vs-posted comparisons (the fan-out guard).
+      Accounts-receivable sales invoice lines.
   - name: accounts
     table: qbo_accounts
     primary_key: [Id, Entity]   # composite: an account Id is unique only within a company
     description: >
-      Chart of accounts master. One row per account. Carries Classification
+      Chart of accounts: one row per account, carrying Classification
       (Revenue/Expense/Asset/Liability/Equity) and account type/subtype.
-      Join key from txn: AccountID = Id.
   - name: acct_hier
     table: hierarchy_by_account
     primary_key: AcctNum
     description: >
       Account-number rollup for P&L / financial-statement grouping (Lvl1-3).
-      Join key from txn: Account_Number = AcctNum.
   - name: class_hier
     table: hierarchy_by_class
     primary_key: Class
     description: >
-      Class -> Department -> DepartmentCategory rollup. Join key from txn: Class.
+      Class -> Department -> DepartmentCategory rollup.
 
 relationships:
   # Composite join: an account Id is only unique *within* a company, so the
@@ -57,12 +56,11 @@ dimensions:
       synonyms: [date, transaction date, posting date, day] }
   - { table: txn, name: txn_year, column: Year, type: year,
       synonyms: [year] }
-  # numeric month-of-year (1-12): kept for cross-year seasonal pivots
-  # (e.g. compare Jan across 2025 vs 2026). Plain "month" resolves to `month` below.
   - { table: txn, name: txn_month, column: Month, type: month,
+      description: "Numeric month of year 1-12, year-agnostic — for comparing the same month across years (e.g. Jan across 2025 and 2026).",
       synonyms: [month number, month of year] }
-  # derived calendar month "YYYY-MM" from the date; the UI displays it as "Apr 2026".
   - { table: txn, name: month, expr: "substr(Date, 1, 7)", type: month,
+      description: "Calendar month as YYYY-MM (one bucket per month per year).",
       synonyms: [month, calendar month, year month, monthly],
       sample_values: ["2026-01", "2026-02"] }
   - { table: txn, name: txn_quarter, column: Quarter, type: quarter,
@@ -86,9 +84,8 @@ dimensions:
       synonyms: [account, gl account, ledger account],
       sample_values: ["Product Sales", "Rent Expense", "Payroll Expense"] }
   # ---- accounts (qbo_accounts), reached by join ----
-  # additive:false — Revenue/Expense are contrasting facts, not parts of a whole,
-  # so charts compare (grouped/lines) rather than stack them.
   - { table: accounts, name: classification, column: Classification, additive: false,
+      description: "P&L bucket: Revenue/Expense/Asset/Liability/Equity. Contrasting facts, not parts of a whole, so charts compare them rather than stack.",
       synonyms: [account classification, revenue vs expense, pnl bucket],
       sample_values: ["Revenue", "Expense", "Asset", "Liability", "Equity"] }
   - { table: accounts, name: account_type, column: AccountType,
@@ -117,8 +114,8 @@ dimensions:
       synonyms: [invoice year] }
   - { table: invoices, name: invoice_month, column: Month, type: month,
       synonyms: [invoice month number, invoice month of year] }
-  # derived calendar month "YYYY-MM" for invoices; displays as "Apr 2026".
   - { table: invoices, name: invoice_period, expr: "substr(Date, 1, 7)", type: month,
+      description: "Calendar month as YYYY-MM for invoices.",
       synonyms: [invoice month, invoice calendar month, invoice period],
       sample_values: ["2026-01", "2026-02"] }
   - { table: invoices, name: item, column: SalesItemLineDetail_ItemRef_name,
