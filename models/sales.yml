@@ -45,6 +45,12 @@ dimensions:
   - { table: fact_sales, name: month, expr: "substr(date, 1, 7)", type: month,
       synonyms: [month, calendar month, year month],
       sample_values: ["2026-07", "2026-08"] }
+  # numeric month-of-year (1-12): a year-agnostic bucket, so Jan 2025 and Jan 2026
+  # share a bucket — use it to compare the same month across years. The UI renders
+  # it as "Jan".."Dec". (Calendar `month` above is year-specific and never shares.)
+  - { table: fact_sales, name: month_of_year, expr: "CAST(substr(date, 6, 2) AS INTEGER)",
+      type: month, synonyms: [month number, month of year, seasonal month],
+      sample_values: [1, 2, 12] }
   - { table: fact_sales, name: iso_week, column: iso_week, type: week,
       synonyms: [week, week number] }
   - { table: fact_sales, name: iso_year, column: iso_year, type: year,
@@ -118,3 +124,17 @@ verified_queries:
         / LAG(total_net_sales) OVER (ORDER BY iso_week) AS pct_change
       FROM product_sales WHERE product_name = 'Cappuccino'
       GROUP BY iso_week ORDER BY iso_week
+  # relative month window: anchor to the data with last_period — do NOT list literal
+  # months. Same pattern as the 30-day window above, but for months.
+  - question: "Net sales by month over the last 3 months"
+    sql: >
+      SELECT month, total_net_sales FROM product_sales
+      WHERE date >= last_period(3, 'month') GROUP BY month ORDER BY month
+  # compare the SAME month across years -> bucket by month_of_year (1-12), NOT the
+  # year-specific calendar `month`, so each bucket holds both years.
+  - question: "Compare net sales by month for 2025 versus 2026"
+    sql: >
+      SELECT month_of_year,
+        SUM(CASE WHEN iso_year = 2025 THEN total_net_sales END) AS net_sales_2025,
+        SUM(CASE WHEN iso_year = 2026 THEN total_net_sales END) AS net_sales_2026
+      FROM product_sales GROUP BY month_of_year ORDER BY month_of_year

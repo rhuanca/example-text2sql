@@ -278,6 +278,36 @@ class TestEndToEnd(SqlCase):
             derived_cols.update(columns)
         self.assertIn("pct_change", derived_cols)  # % change lives in the model
 
+    def test_compare_by_month_across_years_uses_month_of_year(self):
+        # Regression: comparing 2025 vs 2026 "by month" must bucket by month_of_year
+        # (1-12, year-agnostic) so each row holds BOTH years — not the calendar
+        # `month` (YYYY-MM), which is year-specific and yields a degenerate pivot
+        # (one populated column + a zero per row).
+        sql, params, plan = compile_semantic_sql(
+            "SELECT month_of_year, "
+            "SUM(CASE WHEN iso_year = 2025 THEN total_net_sales END) AS s25, "
+            "SUM(CASE WHEN iso_year = 2026 THEN total_net_sales END) AS s26 "
+            "FROM product_sales GROUP BY month_of_year ORDER BY month_of_year",
+            self.model, self.dialect,
+        )
+        self.assertIsInstance(plan, Comparison)
+        self.assertEqual(plan.split_by, "month_of_year")
+        _, rows = SqliteExecutor(self.db).run(sql, params)
+        self.assertEqual(len(rows), 12)  # one row per month-of-year, not 24
+        # every month has non-zero sales in BOTH years (no degenerate zero column)
+        self.assertTrue(all(r[1] and r[2] for r in rows), rows)
+
+    def test_last_period_month_window_restricts_rows(self):
+        sql, params, _ = compile_semantic_sql(
+            "SELECT month, total_net_sales FROM product_sales "
+            "WHERE date >= last_period(3, 'month') GROUP BY month ORDER BY month",
+            self.model, self.dialect,
+        )
+        _, rows = SqliteExecutor(self.db).run(sql, params)
+        months = [r[0] for r in rows]
+        self.assertLessEqual(len(months), 4)  # ~3 calendar months, not all 24
+        self.assertEqual(max(months), "2026-12")  # anchored at the latest data
+
 
 if __name__ == "__main__":
     unittest.main()
