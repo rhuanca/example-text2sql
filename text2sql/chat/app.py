@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import os
 import sys
+import time
+import uuid
 
 # `streamlit run text2sql/chat/app.py` executes this file as a top-level script,
 # so the package root is not on sys.path and relative imports would fail. Put the
@@ -24,7 +26,7 @@ if REPO_ROOT not in sys.path:
 
 from dataclasses import dataclass, field
 
-from text2sql.config import get_api_key, get_model
+from text2sql.config import get_api_key, get_model, get_trace_db_path
 from text2sql.db.seed import build_database as build_sales_db
 from text2sql.db.seed_qbo import build_database as build_qbo_db
 from text2sql.engine.dialects.sqlite import SqliteDialect
@@ -43,6 +45,8 @@ from text2sql.chat.plots import (
     vertical_grouped_bar,
 )
 from text2sql.chat.summarizer import AnthropicSummarizer, MockSummarizer
+from text2sql.trace import usage
+from text2sql.trace.store import TraceStore
 
 
 # ---- dataset registry -----------------------------------------------------
@@ -125,6 +129,31 @@ def build_summarizer():
     return AnthropicSummarizer() if get_api_key() else MockSummarizer()
 
 
+def build_trace_store() -> TraceStore:
+    store = TraceStore(get_trace_db_path())
+    store.init()  # idempotent; best-effort (never raises)
+    return store
+
+
+def record_turn(store, thread_id, dataset, question, payload, calls, latency_ms) -> None:
+    """Persist one answered (or failed) turn + its LLM calls. Best-effort at the
+    store layer, so this never breaks the answer path."""
+    result = payload.get("result")
+    store.record_turn(
+        thread_id=thread_id,
+        dataset=dataset,
+        question=question,
+        rewritten=getattr(result, "rewritten", None),
+        semantic_sql=getattr(result, "semantic_sql", None),
+        sql=getattr(result, "sql", None),
+        row_count=len(result.rows) if result is not None else None,
+        chart_kind=payload.get("chart_kind"),
+        error=payload.get("error"),
+        latency_ms=latency_ms,
+        calls=calls,
+    )
+
+
 def safe_summarize(summarizer, question, columns, rows) -> str:
     try:
         text = summarizer.summarize(question, columns, rows)
@@ -153,6 +182,7 @@ def _render_assistant(st, payload, units=None, additive=None, types=None):
 
     spec = choose_chart(result.ir, result.columns, result.rows,
                         units=units, additive=additive, types=types)
+    payload["chart_kind"] = spec.kind  # captured for the trace store
     story = choose_story(result.ir, spec, result.columns, result.rows, units, types)
     if hasattr(result.ir, "period_field") and spec.kind in ("line", "bar"):
         # A period comparison: melt the wide pivot and render a trend line (week
@@ -256,6 +286,10 @@ def _render_assistant(st, payload, units=None, additive=None, types=None):
             st.code(result.semantic_sql, language="sql")
             st.caption("Compiled SQL — what actually ran")
         st.code(result.sql, language="sql")
+        calls = payload.get("calls")
+        if calls:
+            tin, tout = usage.totals(calls)
+            st.caption(f"Tokens — input {tin:,} · output {tout:,} · {len(calls)} LLM call(s)")
 
 
 def _render_model_map(st, model):
@@ -342,9 +376,14 @@ def main():
         st.info("The **Model Map** view works without a key — switch to it in the sidebar.")
         return
     summarizer = st.cache_resource(build_summarizer)()
+    store = st.cache_resource(build_trace_store)()
 
     if "history" not in st.session_state:
         st.session_state.history = []
+    # One thread per browser session; persists across dataset switches (dataset is
+    # recorded per turn instead), so a conversation keeps a stable id.
+    if "thread_id" not in st.session_state:
+        st.session_state.thread_id = uuid.uuid4().hex
 
     units = {m.name: m.unit for m in model.metrics}  # metric -> unit hint
     additive = {d.name: d.additive for d in model.dimensions}  # dim -> stackable?
@@ -365,17 +404,23 @@ def main():
         with st.chat_message("user"):
             st.markdown(prompt)
         with st.chat_message("assistant"):
-            try:
-                with st.spinner("Thinking…"):
-                    result = engine.ask(prompt, history=history)
-                    summary = safe_summarize(
-                        summarizer, prompt, result.columns, result.rows
-                    )
-                payload = {"role": "assistant", "result": result, "summary": summary}
-            except EngineError as e:
-                payload = {"role": "assistant", "error": f"Sorry — I couldn't answer that: {e}"}
+            t0 = time.monotonic()
+            with usage.collect() as calls:  # accrue every LLM call this turn makes
+                try:
+                    with st.spinner("Thinking…"):
+                        result = engine.ask(prompt, history=history)
+                        summary = safe_summarize(
+                            summarizer, prompt, result.columns, result.rows
+                        )
+                    payload = {"role": "assistant", "result": result, "summary": summary}
+                except EngineError as e:
+                    payload = {"role": "assistant", "error": f"Sorry — I couldn't answer that: {e}"}
+            latency_ms = (time.monotonic() - t0) * 1000
+            payload["calls"] = calls  # for the token caption (live + on replay)
             _render_assistant(st, payload, units, additive, types)
             st.session_state.history.append(payload)
+            record_turn(store, st.session_state.thread_id, dataset_key,
+                        prompt, payload, calls, latency_ms)
 
 
 if __name__ == "__main__":

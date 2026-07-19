@@ -281,6 +281,45 @@ class TestAppHelpers(unittest.TestCase):
         self.assertTrue(any(c == "Interpreted as: revenue of the past 6 days for Contoso SAS"
                             for c in st.captions))
 
+    def test_record_turn_maps_payload_to_store(self):
+        from text2sql.trace.usage import LlmCall
+        captured = {}
+
+        class FakeStore:
+            def record_turn(self, **kw):
+                captured.update(kw)
+
+        result = SimpleNamespace(rewritten="net sales in 2026", semantic_sql="SELECT ...",
+                                 sql="SELECT compiled", rows=[(1,), (2,), (3,)])
+        payload = {"result": result, "summary": "s", "chart_kind": "line"}
+        calls = [LlmCall("plan", "opus", 100, 20)]
+        app.record_turn(FakeStore(), "thread-abc", "sales", "how were sales?",
+                        payload, calls, 250.0)
+        self.assertEqual(captured["thread_id"], "thread-abc")
+        self.assertEqual(captured["dataset"], "sales")
+        self.assertEqual(captured["rewritten"], "net sales in 2026")
+        self.assertEqual(captured["semantic_sql"], "SELECT ...")
+        self.assertEqual(captured["sql"], "SELECT compiled")
+        self.assertEqual(captured["row_count"], 3)
+        self.assertEqual(captured["chart_kind"], "line")
+        self.assertIsNone(captured["error"])
+        self.assertEqual(captured["latency_ms"], 250.0)
+        self.assertEqual(captured["calls"], calls)
+
+    def test_record_turn_on_error_payload(self):
+        captured = {}
+
+        class FakeStore:
+            def record_turn(self, **kw):
+                captured.update(kw)
+
+        payload = {"error": "Sorry — nope"}  # no result
+        app.record_turn(FakeStore(), "t", "sales", "q", payload, [], 5.0)
+        self.assertEqual(captured["error"], "Sorry — nope")
+        self.assertIsNone(captured["row_count"])
+        self.assertIsNone(captured["sql"])
+        self.assertIsNone(captured["chart_kind"])
+
     def test_horizontal_bar_story_titles_and_greys_non_focus(self):
         from text2sql.chat.story import StorySpec
         df = app.to_frame(["product_name", "units_sold"],
