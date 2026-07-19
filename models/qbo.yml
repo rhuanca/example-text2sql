@@ -183,6 +183,16 @@ verified_queries:
     sql: >
       SELECT week_start, total_amount FROM qbo_finance
       WHERE classification = 'Revenue' GROUP BY week_start ORDER BY week_start
+  # period-over-period % change: a LAG window over the aggregated metric, bucketed
+  # by month. The engine lowers it over a deterministic base aggregate; alias the
+  # derived column so it surfaces in the table and chart.
+  - question: "What is revenue month over month, and the percent change?"
+    sql: >
+      SELECT month, total_amount,
+        100.0 * (total_amount - LAG(total_amount) OVER (ORDER BY month))
+        / LAG(total_amount) OVER (ORDER BY month) AS pct_change
+      FROM qbo_finance WHERE classification = 'Revenue'
+      GROUP BY month ORDER BY month
   - question: "Top 10 expense accounts"
     sql: >
       SELECT account_name, total_amount FROM qbo_finance
