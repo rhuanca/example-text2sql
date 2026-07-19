@@ -46,6 +46,7 @@ from text2sql.chat.plots import (
     scatter_chart, stacked_bar, to_frame, vertical_grouped_bar,
 )
 from text2sql.chat.summarizer import AnthropicSummarizer, MockSummarizer
+from text2sql.eval.history import load_history
 from text2sql.trace import usage
 from text2sql.trace.store import TraceStore
 
@@ -407,6 +408,53 @@ def _render_model_map(st, model):
         st.dataframe(df, use_container_width=True, hide_index=True)
 
 
+def eval_summary(history: list) -> list:
+    """Per-model latest scorecard + first→last execution-accuracy delta (the
+    'improving or regressing?' signal). Pure — `history` is load_history()'s output."""
+    by_model = {}
+    for h in history:
+        by_model.setdefault(h["model"], []).append(h)
+    out = []
+    for model, runs in by_model.items():
+        first, last = runs[0], runs[-1]
+        out.append({
+            "model": model, "runs": len(runs),
+            "accuracy": last["exec_accuracy"],
+            "delta": last["exec_accuracy"] - first["exec_accuracy"],
+            "n_pass": last["n_pass"], "n_total": last["n_total"],
+            "f1_metrics": last["f1_metrics"], "f1_dimensions": last["f1_dimensions"],
+            "f1_filters": last["f1_filters"],
+        })
+    return out
+
+
+def _render_evals(st):
+    """The Evals view: agent quality over time — a per-model execution-accuracy trend
+    line + the latest scorecard, from the committed eval history (eval/history.jsonl)."""
+    history = load_history(os.path.join(REPO_ROOT, "eval", "history.jsonl"))
+    st.markdown("How the planner is performing over time, from recorded eval runs "
+                "(record one with `uv run python -m text2sql.eval.run --record`).")
+    if not history:
+        st.info("No eval history yet — run the eval suite with `--record` to start "
+                "tracking quality over time.")
+        return
+    trend = to_frame(["timestamp", "model", "accuracy"],
+                     [(h["timestamp"], h["model"], h["exec_accuracy"]) for h in history])
+    st.altair_chart(line_chart(trend, "timestamp", "accuracy", color="model", fmt=".0%"),
+                    use_container_width=True)
+    summary = eval_summary(history)
+    for s in summary:
+        arrow = "▲" if s["delta"] > 0 else ("▼" if s["delta"] < 0 else "▬")
+        st.caption(f"{arrow} **{s['model']}** — {s['accuracy']:.0%} "
+                   f"({s['delta']:+.0%} over {s['runs']} run(s))")
+    st.subheader("Latest scorecard")
+    st.dataframe(to_frame(
+        ["model", "accuracy", "passed", "F1 metrics", "F1 dims", "F1 filters"],
+        [(s["model"], f"{s['accuracy']:.0%}", f"{s['n_pass']}/{s['n_total']}",
+          s["f1_metrics"], s["f1_dimensions"], s["f1_filters"]) for s in summary]),
+        use_container_width=True, hide_index=True)
+
+
 def main():
     import streamlit as st
 
@@ -422,7 +470,7 @@ def main():
             index=keys.index(DEFAULT_DATASET),
             format_func=lambda k: DATASETS[k].label,
         )
-        view = st.radio("View", ["Chat", "Model Map"], horizontal=True)
+        view = st.radio("View", ["Chat", "Model Map", "Evals"], horizontal=True)
         if view == "Chat" and st.button("🆕 New session", use_container_width=True):
             reset_session(st.session_state)
             st.rerun()
@@ -444,6 +492,9 @@ def main():
 
     if view == "Model Map":
         _render_model_map(st, model)
+        return
+    if view == "Evals":
+        _render_evals(st)
         return
 
     # ---- Chat view (needs the LLM planner) ----

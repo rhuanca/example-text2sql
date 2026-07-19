@@ -22,6 +22,7 @@ from ..engine.executor import SqliteExecutor
 from ..engine.planner import AnthropicPlanner
 from ..semantic.model import load_model
 from .dataset import load_cases
+from .history import Scorecard, append_scorecard
 from .report import format_report
 from .runner import run_suite
 
@@ -29,6 +30,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CASES = REPO_ROOT / "eval" / "cases.yml"
 DEFAULT_MODEL = REPO_ROOT / "models" / "sales.yml"
 DEFAULT_DB = REPO_ROOT / "demo.db"
+DEFAULT_HISTORY = REPO_ROOT / "eval" / "history.jsonl"
 
 # Which seeder builds each model's synthetic DB, keyed by model filename. Used
 # only to auto-create the DB when it is absent (e.g. a fresh CI checkout).
@@ -50,6 +52,13 @@ def main(argv=None) -> int:
         help="Exit non-zero if execution accuracy falls below this (0..1). "
         "Use as a CI regression gate.",
     )
+    parser.add_argument(
+        "--record",
+        action="store_true",
+        help="Append this run's scorecard to the eval history (--history) so quality "
+        "can be tracked over time in the app's Evals view.",
+    )
+    parser.add_argument("--history", default=str(DEFAULT_HISTORY))
     args = parser.parse_args(argv)
 
     cases = load_cases(args.cases)
@@ -69,6 +78,10 @@ def main(argv=None) -> int:
 
     report = run_suite(cases, planner, model, SqliteDialect(), SqliteExecutor(str(db_path)))
     print(format_report(report))
+
+    if args.record:
+        append_scorecard(args.history, Scorecard.from_report(report, model.name))
+        print(f"\nRecorded scorecard for {model.name!r} to {args.history}.")
 
     if args.min_accuracy is not None and report.exec_accuracy < args.min_accuracy:
         print(

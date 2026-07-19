@@ -1,0 +1,4 @@
+{"timestamp": "2026-07-19T13:58:38+00:00", "git_sha": "7a6dacd", "model": "product_sales", "exec_accuracy": 1.0, "n_pass": 21, "n_total": 21, "f1_metrics": 1.0, "f1_dimensions": 1.0, "f1_filters": 1.0}
+{"timestamp": "2026-07-19T13:59:09+00:00", "git_sha": "7a6dacd", "model": "qbo_finance", "exec_accuracy": 0.8182, "n_pass": 9, "n_total": 11, "f1_metrics": 1.0, "f1_dimensions": 0.8788, "f1_filters": 0.9697}
+{"timestamp": "2026-07-19T13:59:57+00:00", "git_sha": "7a6dacd", "model": "product_sales", "exec_accuracy": 1.0, "n_pass": 21, "n_total": 21, "f1_metrics": 1.0, "f1_dimensions": 1.0, "f1_filters": 1.0}
+{"timestamp": "2026-07-19T14:00:27+00:00", "git_sha": "7a6dacd", "model": "qbo_finance", "exec_accuracy": 0.8182, "n_pass": 9, "n_total": 11, "f1_metrics": 1.0, "f1_dimensions": 0.8788, "f1_filters": 0.9697}
