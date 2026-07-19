@@ -359,7 +359,7 @@ def grouped_bar(df: pd.DataFrame, category: str, metrics: list[str], fmt=","):
     )
 
 
-def stacked_bar(df: pd.DataFrame, x: str, series: str, metric: str, fmt=",",
+def stacked_bar(df: pd.DataFrame, x: str, color: str, metric: str, fmt=",",
                 x_type: str | None = None):
     """A vertical stacked bar: one measure split by a categorical over an ordered
     (time) axis. The segments sum to each period's total, so it shows the total and
@@ -375,12 +375,12 @@ def stacked_bar(df: pd.DataFrame, x: str, series: str, metric: str, fmt=",",
                     axis=alt.Axis(labelColor=INK_SECONDARY)),
             y=alt.Y(f"{metric}:Q", title=None, stack="zero",
                     axis=alt.Axis(format=fmt, labelColor=INK_MUTED, grid=True)),
-            color=alt.Color(f"{series}:N", title=None,
+            color=alt.Color(f"{color}:N", title=None,
                             scale=alt.Scale(range=PALETTE),
                             legend=alt.Legend(orient="top")),
             tooltip=[
                 alt.Tooltip(f"{x}:O"),
-                alt.Tooltip(f"{series}:N", title=_pretty(series)),
+                alt.Tooltip(f"{color}:N", title=_pretty(color)),
                 alt.Tooltip(f"{metric}:Q", format=fmt),
             ],
         )
@@ -459,9 +459,9 @@ def vertical_grouped_bar(long: pd.DataFrame, category: str, period_field: str,
         , story)
 
 
-def line_chart(df: pd.DataFrame, x: str, value: str, color: str | None = None, fmt=",",
+def line_chart(df: pd.DataFrame, x: str, metric: str, color: str | None = None, fmt=",",
                x_type: str | None = None, story=None):
-    """A time-series line in the dataviz palette: `value` over an ordered `x`, with
+    """A time-series line in the dataviz palette: `metric` over an ordered `x`, with
     one line per `color` category (palette + legend) when given, else a single blue
     line. A single-series line also carries the story's takeaway title, average/zero
     reference lines, and latest/peak callouts."""
@@ -471,12 +471,12 @@ def line_chart(df: pd.DataFrame, x: str, value: str, color: str | None = None, f
     tooltip = [alt.Tooltip(f"{x}:O")]
     if color:
         tooltip.append(alt.Tooltip(f"{color}:N", title=_pretty(color)))
-    tooltip.append(alt.Tooltip(f"{value}:Q", format=fmt))
+    tooltip.append(alt.Tooltip(f"{metric}:Q", format=fmt))
 
     enc = {
         "x": alt.X(f"{x}:O", title=_pretty(x), sort=xsort,
                    axis=alt.Axis(labelColor=INK_SECONDARY)),
-        "y": alt.Y(f"{value}:Q", title=None, scale=alt.Scale(zero=False),
+        "y": alt.Y(f"{metric}:Q", title=None, scale=alt.Scale(zero=False),
                    axis=alt.Axis(format=fmt, labelColor=INK_MUTED)),
         "tooltip": tooltip,
     }
@@ -487,7 +487,7 @@ def line_chart(df: pd.DataFrame, x: str, value: str, color: str | None = None, f
     line = alt.Chart(df).mark_line(point=True, color=SERIES_1).encode(**enc)
     # A single-series trend gets story overlays: reference lines behind, callouts front.
     if story is not None and not color:
-        chart = alt.layer(*_ref_layers(story), line, *_ann_layers(story, x, value, xsort))
+        chart = alt.layer(*_ref_layers(story), line, *_ann_layers(story, x, metric, xsort))
     else:
         chart = line
     return _titled(chart.properties(height=320), story)
@@ -515,7 +515,7 @@ def line_panel(df: pd.DataFrame, x: str, metric: str, percent: bool = False,
     return chart.properties(height=180)
 
 
-def area_chart(df: pd.DataFrame, x: str, value: str, color: str | None = None, fmt=",",
+def area_chart(df: pd.DataFrame, x: str, metric: str, color: str | None = None, fmt=",",
                x_type: str | None = None, story=None):
     """A filled time-series area (a line's sibling, emphasizing magnitude/volume):
     a single blue area anchored at zero with a solid top line and the story overlays,
@@ -527,11 +527,11 @@ def area_chart(df: pd.DataFrame, x: str, value: str, color: str | None = None, f
     tooltip = [alt.Tooltip(f"{x}:O")]
     if color:
         tooltip.append(alt.Tooltip(f"{color}:N", title=_pretty(color)))
-    tooltip.append(alt.Tooltip(f"{value}:Q", format=fmt))
+    tooltip.append(alt.Tooltip(f"{metric}:Q", format=fmt))
     enc = {
         "x": alt.X(f"{x}:O", title=_pretty(x), sort=xsort,
                    axis=alt.Axis(labelColor=INK_SECONDARY)),
-        "y": alt.Y(f"{value}:Q", title=None, stack="zero" if color else None,
+        "y": alt.Y(f"{metric}:Q", title=None, stack="zero" if color else None,
                    axis=alt.Axis(format=fmt, labelColor=INK_MUTED)),
         "tooltip": tooltip,
     }
@@ -544,7 +544,7 @@ def area_chart(df: pd.DataFrame, x: str, value: str, color: str | None = None, f
     area = alt.Chart(df).mark_area(
         line={"color": SERIES_1}, color=SERIES_1, opacity=0.25).encode(**enc)
     if story is not None:  # same reference/callout overlays as the line
-        area = alt.layer(*_ref_layers(story), area, *_ann_layers(story, x, value, xsort))
+        area = alt.layer(*_ref_layers(story), area, *_ann_layers(story, x, metric, xsort))
     return _titled(area.properties(height=320), story)
 
 
