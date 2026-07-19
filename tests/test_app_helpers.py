@@ -49,8 +49,9 @@ class TestAppHelpers(unittest.TestCase):
         self.assertEqual(y_enc["field"], "product_name")
         self.assertEqual(y_enc["sort"], "-x")
         self.assertEqual(spec["layer"][0]["encoding"]["x"]["field"], "units_sold")
-        # dataviz palette: bars use categorical slot 1, labels are comma-formatted
-        self.assertEqual(spec["layer"][0]["mark"]["color"], plots.SERIES_1)
+        # dataviz palette: bars use categorical slot 1 (now via encoding so a story
+        # can grey the non-focus), labels are comma-formatted
+        self.assertEqual(spec["layer"][0]["encoding"]["color"]["value"], plots.SERIES_1)
         self.assertEqual(spec["layer"][1]["encoding"]["text"]["format"], ",")
 
     def test_horizontal_bar_shared_order(self):
@@ -279,6 +280,32 @@ class TestAppHelpers(unittest.TestCase):
         app._render_assistant(st, {"result": result, "summary": "hi"})
         self.assertTrue(any(c == "Interpreted as: revenue of the past 6 days for Contoso SAS"
                             for c in st.captions))
+
+    def test_horizontal_bar_story_titles_and_greys_non_focus(self):
+        from text2sql.chat.story import StorySpec
+        df = app.to_frame(["product_name", "units_sold"],
+                          [("Cappuccino", 4983), ("Americano", 3491)])
+        story = StorySpec(title="Cappuccino leads — 4,983", emphasis="Cappuccino")
+        spec = app.horizontal_bar(df, "product_name", "units_sold", story=story).to_dict()
+        self.assertEqual(spec["title"]["text"], "Cappuccino leads — 4,983")
+        # colour is now a focus-vs-muted condition, not a flat value
+        self.assertIn("condition", spec["layer"][0]["encoding"]["color"])
+
+    def test_line_chart_story_adds_title_reference_and_callouts(self):
+        from text2sql.chat.story import Annotation, Reference, StorySpec
+        df = app.to_frame(["month", "total_net_sales"],
+                          [("Jan 2026", 4000.0), ("Jun 2026", 4600.0), ("Dec 2026", 2918.0)])
+        story = StorySpec(
+            title="Net sales fell 27%", subtitle="$4,000 → $2,918",
+            references=[Reference(3839.0, "avg", "avg")],
+            annotations=[Annotation("Dec 2026", 2918.0, "$2,918", "latest"),
+                         Annotation("Jun 2026", 4600.0, "peak · Jun 2026", "peak")])
+        spec = app.line_chart(df, "month", "total_net_sales", story=story).to_dict()
+        self.assertEqual(spec["title"]["text"], "Net sales fell 27%")
+        marks = {(m["type"] if isinstance(m, dict) else m)
+                 for m in (layer["mark"] for layer in spec["layer"])}
+        # average rule + the line + latest point + text callouts
+        self.assertTrue({"rule", "line", "point", "text"} <= marks, marks)
 
     def test_safe_summarize_falls_back_on_error(self):
         class Boom:

@@ -22,6 +22,7 @@ SERIES_2 = "#008300"       # categorical slot 2 (green), light surface
 INK_SECONDARY = "#52514e"  # value/label ink
 INK_MUTED = "#898781"      # axis/label muted
 AXIS_LINE = "#c3c2b7"      # baseline / axis
+MUTED_FILL = "#d6dbe3"     # greyed-out (non-focus) bars/marks
 # dataviz categorical palette (light), assigned in fixed order — never cycled.
 PALETTE = [SERIES_1, SERIES_2, "#e87ba4", "#eda100", "#1baf7a", "#eb6834",
            "#4a3aa7", "#e34948"]
@@ -151,7 +152,60 @@ def _display_frame(result, types: dict | None = None) -> pd.DataFrame:
 
 
 # ---- chart builders (render) ----------------------------------------------
-def horizontal_bar(df: pd.DataFrame, category: str, metric: str, sort="-x", fmt=","):
+# ---- story overlays (the "narrate" layer renders here) ---------------------
+# `story` is a duck-typed StorySpec (text2sql/chat/story.py) — kept import-free so
+# plots.py stays a pure build layer with no dependency on the narrate layer.
+def _titled(chart, story):
+    """Attach a takeaway title + subtitle from the story, if any."""
+    if story is None or not getattr(story, "title", None):
+        return chart
+    import altair as alt
+
+    return chart.properties(title=alt.TitleParams(
+        text=story.title, subtitle=story.subtitle or "", anchor="start",
+        fontSize=15, subtitleColor=INK_MUTED, subtitleFontSize=12, offset=10))
+
+
+def _ref_layers(story):
+    """Reference lines (average / target / zero) as mark_rule layers behind the data."""
+    if story is None:
+        return []
+    import altair as alt
+    import pandas as pd
+
+    out = []
+    for r in story.references:
+        dash = {"avg": [4, 3], "zero": [2, 2]}.get(r.role, [])
+        out.append(alt.Chart(pd.DataFrame({"_y": [r.value]}))
+                   .mark_rule(color=AXIS_LINE, strokeDash=dash).encode(y="_y:Q"))
+    return out
+
+
+def _ann_layers(story, x, value, xsort):
+    """Point + text callouts (latest value, peak/trough) in front of the line."""
+    if story is None:
+        return []
+    import altair as alt
+    import pandas as pd
+
+    out = []
+    for a in story.annotations:
+        d = pd.DataFrame([{x: a.x, value: a.y}])
+        xe, ye = alt.X(f"{x}:O", sort=xsort), f"{value}:Q"
+        if a.role == "latest":
+            out.append(alt.Chart(d).mark_point(color=SERIES_1, filled=True, size=90)
+                       .encode(x=xe, y=ye))
+            out.append(alt.Chart(d).mark_text(align="right", dx=-8, dy=-11,
+                                              color=SERIES_1, fontWeight="bold")
+                       .encode(x=xe, y=ye, text=alt.value(a.text)))
+        else:  # peak / trough
+            out.append(alt.Chart(d).mark_text(align="center", dy=-12, color=INK_SECONDARY)
+                       .encode(x=xe, y=ye, text=alt.value(a.text)))
+    return out
+
+
+def horizontal_bar(df: pd.DataFrame, category: str, metric: str, sort="-x", fmt=",",
+                   story=None):
     """An Altair horizontal bar in the dataviz palette: single blue series,
     4px rounded data-ends, per-bar value labels (which replace the x-axis) and
     full-precision tooltip, all formatted with `fmt` (a d3 format string, e.g.
@@ -171,9 +225,17 @@ def horizontal_bar(df: pd.DataFrame, category: str, metric: str, sort="-x", fmt=
     # direct labels before gridlines).
     x = alt.X(f"{metric}:Q", title=None, axis=None)
     base = alt.Chart(df)
-    bars = base.mark_bar(color=SERIES_1, cornerRadiusEnd=4).encode(
+    # Emphasis: colour the story's focus (the leader) and grey the rest.
+    if story is not None and getattr(story, "emphasis", None) is not None:
+        import json
+        color = alt.condition(f"datum[{json.dumps(category)}] == {json.dumps(story.emphasis)}",
+                              alt.value(SERIES_1), alt.value(MUTED_FILL))
+    else:
+        color = alt.value(SERIES_1)
+    bars = base.mark_bar(cornerRadiusEnd=4).encode(
         x=x,
         y=y,
+        color=color,
         tooltip=[
             alt.Tooltip(f"{category}:N", title=category.replace("_", " ")),
             alt.Tooltip(f"{metric}:Q", title=metric.replace("_", " "), format=fmt),
@@ -184,7 +246,8 @@ def horizontal_bar(df: pd.DataFrame, category: str, metric: str, sort="-x", fmt=
     )
     # Fixed 30px band per category (bar ~24px after padding) so bars stay a
     # readable thickness no matter the container width or number of rows.
-    return (bars + labels).properties(height=alt.Step(30)).configure_view(strokeWidth=0)
+    return _titled(
+        (bars + labels).properties(height=alt.Step(30)).configure_view(strokeWidth=0), story)
 
 
 def grouped_bar(df: pd.DataFrame, category: str, metrics: list[str], fmt=","):
@@ -254,7 +317,7 @@ def stacked_bar(df: pd.DataFrame, x: str, series: str, metric: str, fmt=",",
 
 
 def comparison_grouped_bar(long: pd.DataFrame, category: str, period_field: str,
-                           periods: list, fmt=","):
+                           periods: list, fmt=",", story=None):
     """Grouped horizontal bar for a period comparison: one colored bar per period
     within each category, side by side (never stacked), on one formatted axis.
     Categories ordered by total across periods; colors follow period order."""
@@ -264,7 +327,7 @@ def comparison_grouped_bar(long: pd.DataFrame, category: str, period_field: str,
     data = long.copy()
     data["period"] = data["period"].astype(str)
     domain = [str(p) for p in periods]
-    return (
+    return _titled(
         alt.Chart(data)
         .mark_bar(cornerRadiusEnd=4)
         .encode(
@@ -284,12 +347,11 @@ def comparison_grouped_bar(long: pd.DataFrame, category: str, period_field: str,
             ],
         )
         .properties(height=alt.Step(16))
-        .configure_view(strokeWidth=0)
-    )
+        .configure_view(strokeWidth=0), story)
 
 
 def vertical_grouped_bar(long: pd.DataFrame, category: str, period_field: str,
-                         periods: list, fmt=",", x_type: str | None = None):
+                         periods: list, fmt=",", x_type: str | None = None, story=None):
     """Vertical clustered columns for a period comparison over a time bucket: one
     colored bar per period within each time category, side by side (never stacked),
     ordered chronologically along the x-axis. Month categories render friendly
@@ -301,7 +363,7 @@ def vertical_grouped_bar(long: pd.DataFrame, category: str, period_field: str,
     data = long.copy()
     data["period"] = data["period"].astype(str)
     domain = [str(p) for p in periods]
-    return (
+    return _titled(
         alt.Chart(data)
         .mark_bar(cornerRadiusEnd=4)
         .encode(
@@ -321,16 +383,15 @@ def vertical_grouped_bar(long: pd.DataFrame, category: str, period_field: str,
             ],
         )
         .properties(height=340)
-        .configure_view(strokeWidth=0)
-    )
+        .configure_view(strokeWidth=0), story)
 
 
 def line_chart(df: pd.DataFrame, x: str, value: str, color: str | None = None, fmt=",",
-               x_type: str | None = None):
+               x_type: str | None = None, story=None):
     """A time-series line in the dataviz palette: `value` over an ordered `x`, with
     one line per `color` category (palette + legend) when given, else a single blue
-    line. Formatted y-axis + tooltip. Replaces st.line_chart so lines match the
-    bars (palette, $/%, tooltips)."""
+    line. A single-series line also carries the story's takeaway title, average/zero
+    reference lines, and latest/peak callouts."""
     import altair as alt
 
     df, xsort = _month_axis(df, x, x_type)
@@ -350,10 +411,13 @@ def line_chart(df: pd.DataFrame, x: str, value: str, color: str | None = None, f
         enc["color"] = alt.Color(f"{color}:N", title=None,
                                  scale=alt.Scale(range=PALETTE),
                                  legend=alt.Legend(orient="top"))
-    return (
-        alt.Chart(df).mark_line(point=True, color=SERIES_1)
-        .encode(**enc).properties(height=320).configure_view(strokeWidth=0)
-    )
+    line = alt.Chart(df).mark_line(point=True, color=SERIES_1).encode(**enc)
+    # A single-series trend gets story overlays: reference lines behind, callouts front.
+    if story is not None and not color:
+        chart = alt.layer(*_ref_layers(story), line, *_ann_layers(story, x, value, xsort))
+    else:
+        chart = line
+    return _titled(chart.properties(height=320).configure_view(strokeWidth=0), story)
 
 
 def line_panel(df: pd.DataFrame, x: str, metric: str, percent: bool = False,

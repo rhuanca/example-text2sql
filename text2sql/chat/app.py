@@ -34,6 +34,7 @@ from text2sql.engine.planner import AnthropicPlanner, PlannerError
 from text2sql.engine.rewriter import AnthropicRewriter
 from text2sql.semantic.model import load_model
 from text2sql.chat.charts import choose_chart
+from text2sql.chat.story import choose_story
 from text2sql.chat.model_map import model_to_dot, table_fields
 from text2sql.chat.plots import (
     _display_frame, _fmt_number, _md_safe, _percent_measure, chart_frame,
@@ -152,6 +153,7 @@ def _render_assistant(st, payload, units=None, additive=None, types=None):
 
     spec = choose_chart(result.ir, result.columns, result.rows,
                         units=units, additive=additive, types=types)
+    story = choose_story(result.ir, spec, result.columns, result.rows, units, types)
     if hasattr(result.ir, "period_field") and spec.kind in ("line", "bar"):
         # A period comparison: melt the wide pivot and render a trend line (week
         # over week) or a grouped bar (periods side by side) — never stacked.
@@ -159,7 +161,8 @@ def _render_assistant(st, payload, units=None, additive=None, types=None):
         fmt = d3_format(units.get(result.ir.metric))
         if spec.kind == "line":
             st.altair_chart(
-                line_chart(long, "period", "value", color=result.ir.split_by, fmt=fmt),
+                line_chart(long, "period", "value", color=result.ir.split_by, fmt=fmt,
+                           story=story),
                 use_container_width=True,
             )
         elif spec.orientation == "clustered":
@@ -167,13 +170,13 @@ def _render_assistant(st, payload, units=None, additive=None, types=None):
             st.altair_chart(
                 vertical_grouped_bar(long, result.ir.split_by, result.ir.period_field,
                                      result.ir.periods, fmt=fmt,
-                                     x_type=types.get(result.ir.split_by)),
+                                     x_type=types.get(result.ir.split_by), story=story),
                 use_container_width=True,
             )
         else:
             st.altair_chart(
-                comparison_grouped_bar(long, result.ir.split_by,
-                                       result.ir.period_field, result.ir.periods, fmt=fmt),
+                comparison_grouped_bar(long, result.ir.split_by, result.ir.period_field,
+                                       result.ir.periods, fmt=fmt, story=story),
                 use_container_width=True,
             )
     elif spec.kind == "number" and result.rows:
@@ -200,17 +203,17 @@ def _render_assistant(st, payload, units=None, additive=None, types=None):
         elif spec.series:
             # single measure split by a categorical over time -> one line per series
             st.altair_chart(line_chart(df, spec.x, spec.y[0], color=spec.series, fmt=fmt,
-                                       x_type=types.get(spec.x)),
+                                       x_type=types.get(spec.x), story=story),
                             use_container_width=True)
         elif len(spec.y) == 1:
             st.altair_chart(line_chart(df, spec.x, spec.y[0], fmt=fmt,
-                                       x_type=types.get(spec.x)),
+                                       x_type=types.get(spec.x), story=story),
                             use_container_width=True)
         else:  # 2+ same-scale measures -> one line per measure
             long_df = df.melt(id_vars=[spec.x], value_vars=spec.y,
                               var_name="measure", value_name="value")
             st.altair_chart(line_chart(long_df, spec.x, "value", color="measure", fmt=fmt,
-                                       x_type=types.get(spec.x)),
+                                       x_type=types.get(spec.x), story=story),
                             use_container_width=True)
     elif spec.kind == "bar" and spec.orientation == "grouped":
         # Same-unit measures (e.g. sales vs budget) compared side by side on one
@@ -232,7 +235,7 @@ def _render_assistant(st, payload, units=None, additive=None, types=None):
                 st.caption(metric.replace("_", " "))
             st.altair_chart(
                 horizontal_bar(df, spec.x, metric, sort=order,
-                               fmt=d3_format(units.get(metric))),
+                               fmt=d3_format(units.get(metric)), story=story),
                 use_container_width=True,
             )
     elif spec.kind == "bar" and spec.orientation == "stacked":
