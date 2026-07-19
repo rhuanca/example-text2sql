@@ -202,20 +202,34 @@ def bucket_long_tail(columns: list[str], rows: list, category: str, metric: str,
 
 def _display_frame(result, types: dict | None = None) -> pd.DataFrame:
     """The result table for display. Month dimension columns render friendly
-    (`"2026-04"` -> `"Apr 2026"`, a bare `4` -> `"Apr"`); for a period comparison,
-    relabel the pivoted `metric_<p>` columns to a readable `metric (period_field=p)`."""
+    (`"2026-04"` -> `"Apr 2026"`, a bare `4` -> `"Apr"`). A period comparison relabels
+    the pivoted `metric_<p>` columns to `metric (period_field=p)` — unless the split is
+    exclusive (each split value belongs to exactly one period, e.g. an account that is
+    only Revenue OR Expense), where the wide pivot would be half zeros; then it shows
+    tidy long rows (split_by, period_field, metric) instead."""
     types = types or {}
-    df = to_frame(result.columns, result.rows)
-    for col in result.columns:
+    cmp = result.ir if hasattr(result.ir, "period_field") else None
+    if cmp is not None:
+        period_cols = [c for c in result.columns if c != cmp.split_by]
+        idx = [result.columns.index(c) for c in period_cols]
+        present = lambda v: v not in (None, 0) and v == v  # not None/0/NaN  # noqa: E731
+        if len(period_cols) >= 2 and all(
+                sum(present(r[i]) for i in idx) <= 1 for r in result.rows):
+            colmap = dict(zip(period_cols, cmp.periods))
+            si = result.columns.index(cmp.split_by)
+            rows = [(r[si], colmap[c], r[result.columns.index(c)])
+                    for r in result.rows for c in period_cols
+                    if present(r[result.columns.index(c)])]
+            df = to_frame([cmp.split_by, cmp.period_field, cmp.metric], rows)
+        else:
+            df = to_frame(result.columns, result.rows).rename(columns={
+                c: f"{cmp.metric} ({cmp.period_field}={p})"
+                for c, p in zip(period_cols, cmp.periods)})
+    else:
+        df = to_frame(result.columns, result.rows)
+    for col in df.columns:
         if types.get(col) == "month":
             df[col] = df[col].map(month_label)
-    if hasattr(result.ir, "period_field"):
-        cmp = result.ir
-        period_cols = [c for c in result.columns if c != cmp.split_by]
-        df = df.rename(columns={
-            c: f"{cmp.metric} ({cmp.period_field}={p})"
-            for c, p in zip(period_cols, cmp.periods)
-        })
     return df
 
 

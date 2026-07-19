@@ -298,6 +298,20 @@ class TestAppHelpers(unittest.TestCase):
         _, none = plots._month_axis(df, "month", "week")               # non-month
         self.assertIsNone(none)
 
+    def test_display_frame_exclusive_split_is_long_not_zero_filled(self):
+        # accounts belong to exactly one classification -> tidy long rows, no 0 columns
+        cmp = Comparison.from_dict({"metric": "total_amount", "split_by": "account_name",
+                                    "period_field": "classification",
+                                    "periods": ["Revenue", "Expense"]})
+        result = SimpleNamespace(
+            ir=cmp,
+            columns=["account_name", "total_amount_Revenue", "total_amount_Expense"],
+            rows=[("Product Sales", 527671.30, 0), ("Payroll Expense", 0, 232175.42)])
+        df = app._display_frame(result)
+        self.assertEqual(list(df.columns), ["account_name", "classification", "total_amount"])
+        self.assertEqual(list(df["classification"]), ["Revenue", "Expense"])
+        self.assertEqual(list(df["total_amount"]), [527671.30, 232175.42])  # no zeros
+
     def test_display_frame_prettifies_month_columns(self):
         result = SimpleNamespace(
             ir=SimpleNamespace(),  # no period_field
