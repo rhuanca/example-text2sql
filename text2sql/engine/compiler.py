@@ -237,11 +237,18 @@ def _where(ir, model, dialect, qualify: bool):
 
 
 def _time_clause(t, col, tbl, colexpr, dialect) -> str:
-    """Lower a TimeWindow to `colexpr >= <anchor - last*unit>`. When anchored to
-    the data, the anchor is the latest date present, so the window is bounded at
-    the top by the data itself (fixes 'last N weeks' over future-dated data)."""
-    anchor = f"(SELECT MAX({col}) FROM {tbl})" if t.anchor == "data" else None
-    return f"{colexpr} >= {dialect.relative_date(t.last, t.unit, anchor)}"
+    """Lower a TimeWindow to `colexpr >= <bucket-aligned anchor - (last-1) units>`.
+    Anchored to the data, the anchor is the latest date present. Aligning it to the
+    START of its own bucket (for week/month) and going back last-1 *whole* units makes
+    "last N <unit>" cover exactly N COMPLETE buckets when grouped by that unit — not
+    N+1 with a partial leading bucket (an unaligned N-unit span crosses N+1 buckets)."""
+    if t.anchor == "data":
+        raw = f"(SELECT MAX({col}) FROM {tbl})"
+        # days are already bucket-aligned; week/month need truncation to the bucket start
+        anchor = raw if t.unit == "day" else dialect.date_trunc(t.unit, raw)
+    else:
+        anchor = None  # wall-clock anchor
+    return f"{colexpr} >= {dialect.relative_date(t.last - 1, t.unit, anchor)}"
 
 
 def _where_for_base(ir, model, dialect, base, key_cols):

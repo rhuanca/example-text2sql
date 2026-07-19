@@ -327,8 +327,9 @@ class TestEndToEnd(SqlCase):
             self.model, self.dialect,
         )
         _, rows = SqliteExecutor(self.db).run(sql, params)
-        self.assertTrue(rows)
-        self.assertLessEqual(len(rows), 8)  # restricted to recent weeks, not all
+        # "last 6 weeks" grouped by week must be exactly 6 complete week buckets
+        # (regression: an unaligned span returned 7).
+        self.assertEqual(len(rows), 6)
 
     def test_last_period_month_window_restricts_rows(self):
         sql, params, _ = compile_semantic_sql(
@@ -338,8 +339,9 @@ class TestEndToEnd(SqlCase):
         )
         _, rows = SqliteExecutor(self.db).run(sql, params)
         months = [r[0] for r in rows]
-        self.assertLessEqual(len(months), 4)  # ~3 calendar months, not all 24
+        self.assertEqual(len(months), 3)  # exactly 3 complete months (Oct/Nov/Dec)
         self.assertEqual(max(months), "2026-12-01")  # anchored at the latest data
+        self.assertEqual(min(months), "2026-10-01")
 
 
 if __name__ == "__main__":

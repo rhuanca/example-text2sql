@@ -39,7 +39,7 @@ class TestPostgresSeam(unittest.TestCase):
             }
         )
         sql, _ = compile(ir, self.model, PostgresDialect())
-        self.assertIn("INTERVAL '30 days'", sql)
+        self.assertIn("INTERVAL '29 days'", sql)  # last 30 days = anchor - 29 (30 buckets)
         self.assertIn('MAX("date")', sql)  # data-anchored window
 
     def test_time_grains_compile_to_postgres(self):

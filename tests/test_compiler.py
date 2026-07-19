@@ -87,8 +87,9 @@ class TestSingleTable(CompilerCase):
                 "time": {"field": "date", "last": 42, "unit": "day"},
             }
         )
-        # window is anchored to the latest date in the data, bounded, not wall-clock
-        self.assertIn("date((SELECT MAX(\"date\") FROM \"fact_sales\"), '-42 days')", sql)
+        # window is anchored to the latest date in the data, bounded, not wall-clock.
+        # "last 42 days" = anchor - 41 days, so it spans exactly 42 day-buckets.
+        self.assertIn("date((SELECT MAX(\"date\") FROM \"fact_sales\"), '-41 days')", sql)
         self.assertIn('"fact_sales"."date" >=', sql)
 
     def test_order_and_limit(self):
