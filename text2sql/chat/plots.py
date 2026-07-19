@@ -638,7 +638,9 @@ def heatmap(df: pd.DataFrame, x: str, y: str, metric: str, fmt=","):
     import altair as alt
 
     base = alt.Chart(df).encode(
-        x=alt.X(f"{x}:N", title=_pretty(x)),
+        # horizontal column headers: Vega-Lite rotates nominal x labels to vertical
+        # by default, which makes short codes (state abbreviations) unreadable.
+        x=alt.X(f"{x}:N", title=_pretty(x), axis=alt.Axis(labelAngle=0)),
         y=alt.Y(f"{y}:N", title=_pretty(y)),
     )
     rects = base.mark_rect().encode(

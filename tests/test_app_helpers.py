@@ -96,6 +96,9 @@ class TestAppHelpers(unittest.TestCase):
         rng = spec["layer"][0]["encoding"]["color"]["scale"]["range"]
         self.assertEqual(rng[-1], plots.SERIES_1)
         self.assertEqual(len(rng), 2)
+        # column headers stay horizontal so short codes (e.g. state abbreviations)
+        # are readable, not rotated vertical
+        self.assertEqual(spec["layer"][0]["encoding"]["x"]["axis"]["labelAngle"], 0)
 
     def test_registered_theme_config_is_applied(self):
         # the central theme merges into every chart's spec (branding in one place)
