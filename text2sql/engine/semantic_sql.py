@@ -54,6 +54,8 @@ def compile_semantic_sql(sql: str, model, dialect):
     carried on the Result for chart selection. Raises SemanticSqlError / the
     engine's recoverable errors on anything invalid."""
     expr = _parse(sql)
+    if expr.args.get("with") or expr.args.get("with_"):  # a single-CTE query
+        return _lower_cte(expr, model, dialect)
     _basic_checks(expr, model)
     if _has_window(expr):
         dim_names = {d.name for d in model.dimensions}
@@ -469,3 +471,61 @@ def _window_shape(expr, dim_names) -> QueryShape:
         else:
             metrics.append(sel.alias_or_name)
     return QueryShape(metrics=metrics, dimensions=dimensions)
+
+
+# ---- single CTE (multi-step: aggregate, then query the aggregate) -----------
+def _lower_cte(expr, model, dialect):
+    """Lower a single-CTE query: `WITH b AS (<semantic aggregate>) <outer over b>`.
+    The CTE body is compiled with the ordinary compiler (so joins/fan-out stay
+    deterministic); the outer is the LLM's SELECT over the CTE's OUTPUT columns only
+    (e.g. a window / ranking / ratio over an aggregate). We emit a real `WITH` whose
+    body is the compiled physical SQL. Returns (sql, params, QueryShape) — like the
+    window path, the outer has no flat SemanticQuery form."""
+    if not isinstance(expr, exp.Select):
+        raise SemanticSqlError("only a SELECT may query a CTE")
+    with_node = expr.args.get("with") or expr.args.get("with_")
+    ctes = with_node.expressions
+    if len(ctes) != 1:
+        raise SemanticSqlError("only a single CTE (one WITH … AS …) is supported")
+    cte = ctes[0]
+    body = cte.this
+    if not isinstance(body, exp.Select):
+        raise SemanticSqlError("the CTE body must be a SELECT")
+
+    # the CTE body must be a plain semantic aggregate (no window, no CASE pivot)
+    dim_names = {d.name for d in model.dimensions}
+    metric_names = {m.name for m in model.metrics}
+    _basic_checks(body, model)
+    if _has_window(body):
+        raise SemanticSqlError("the CTE body may not use window functions")
+    if _detect_pivot(body, dim_names, metric_names) is not None:
+        raise SemanticSqlError("the CTE body may not be a CASE pivot")
+    inner = _normalize(body, model)
+    validate_ir(inner, model)
+    inner_sql, params = compile_ir(inner, model, dialect)
+
+    # scope = the CTE's output columns; the outer may reference only those
+    cte_cols = {sel.alias_or_name for sel in body.expressions}
+    _validate_cte_outer(expr, body, cte.alias, cte_cols)
+
+    shape = _window_shape(expr, dim_names)  # outer SELECT list (before we mutate)
+    cte.set("this", _parse(inner_sql))      # swap the body for its compiled SQL
+    return expr.sql(dialect="sqlite"), params, shape
+
+
+def _validate_cte_outer(expr, body, name, cte_cols) -> None:
+    """The outer query must read only from the CTE and only its output columns —
+    the safety boundary for the CTE case (no physical tables, no joins/subqueries)."""
+    frm = expr.args.get("from") or expr.args.get("from_")
+    tables = list(frm.find_all(exp.Table)) if frm else []
+    if len(tables) != 1 or tables[0].name != name:
+        raise SemanticSqlError(f"the outer query must select FROM the CTE {name!r}")
+    if expr.find(exp.Join):  # the body has none (passed _basic_checks) -> any is outer
+        raise SemanticSqlError("joins are not allowed in a CTE query")
+    if list(expr.find_all(exp.Subquery)):
+        raise SemanticSqlError("subqueries are not allowed in a CTE query")
+    body_cols = {id(c) for c in body.find_all(exp.Column)}  # exclude the CTE body's own
+    for col in expr.find_all(exp.Column):
+        if id(col) not in body_cols and col.name not in cte_cols:
+            raise SemanticSqlError(
+                f"unknown column in the outer query: {col.name!r} — not produced by the CTE")

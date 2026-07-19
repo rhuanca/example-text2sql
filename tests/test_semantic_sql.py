@@ -344,5 +344,55 @@ class TestEndToEnd(SqlCase):
         self.assertEqual(min(months), "2026-10-01")
 
 
+class TestCte(TestEndToEnd):
+    """One CTE: aggregate in the CTE, then query the aggregate (a window / ratio /
+    filter over it) — lowered to a real WITH over the compiled body."""
+
+    _MONTHLY = (
+        "WITH monthly AS (SELECT product_name, month, total_net_sales "
+        "FROM product_sales GROUP BY product_name, month) "
+        "SELECT product_name, month, "
+        "total_net_sales - LAG(total_net_sales) OVER (PARTITION BY product_name ORDER BY month) "
+        "AS mom FROM monthly ORDER BY product_name, month"
+    )
+
+    def test_cte_month_over_month_compiles_and_runs(self):
+        sql, params, shape = compile_semantic_sql(self._MONTHLY, self.model, self.dialect)
+        self.assertTrue(sql.strip().upper().startswith("WITH"))   # a real WITH is emitted
+        self.assertIn("monthly", sql)
+        self.assertNotIn("product_sales", sql)                    # virtual table compiled away
+        self.assertIsInstance(shape, QueryShape)                  # no flat SemanticQuery form
+        self.assertEqual(shape.dimensions, ["product_name", "month"])
+        self.assertEqual(shape.metrics, ["mom"])
+        cols, rows = SqliteExecutor(self.db).run(sql, params)
+        self.assertEqual(cols, ["product_name", "month", "mom"])
+        self.assertTrue(rows)
+
+    def _reject(self, sql):
+        with self.assertRaises(SemanticSqlError):
+            compile_semantic_sql(sql, self.model, self.dialect)
+
+    def test_cte_rejects_outer_column_not_produced_by_cte(self):
+        self._reject(
+            "WITH m AS (SELECT product_name, total_net_sales FROM product_sales "
+            "GROUP BY product_name) SELECT product_name, units_sold FROM m")
+
+    def test_cte_rejects_physical_table_in_outer(self):
+        self._reject(
+            "WITH m AS (SELECT product_name, total_net_sales FROM product_sales "
+            "GROUP BY product_name) SELECT product_name FROM fact_sales")
+
+    def test_cte_rejects_multiple_ctes(self):
+        self._reject(
+            "WITH a AS (SELECT product_name, total_net_sales FROM product_sales GROUP BY product_name), "
+            "b AS (SELECT market, total_net_sales FROM product_sales GROUP BY market) "
+            "SELECT product_name FROM a")
+
+    def test_cte_body_rejects_window(self):
+        self._reject(
+            "WITH m AS (SELECT iso_week, LAG(total_net_sales) OVER (ORDER BY iso_week) AS x "
+            "FROM product_sales GROUP BY iso_week) SELECT iso_week, x FROM m")
+
+
 if __name__ == "__main__":
     unittest.main()
