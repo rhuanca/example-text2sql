@@ -60,16 +60,15 @@ cases:
     tags: [filter, time-series, single-table]
     expected:
       metrics: [total_net_sales, units_sold]
-      dimensions: [product_name, iso_year, iso_week]
+      dimensions: [week_start]
       filters: [{ field: product_name, op: "=", value: "Cappuccino" }]
-      order_by: [{ field: iso_week, dir: asc }]
-    # "week over week" is open-ended: net sales by week (a common, simpler reading)
-    # is also correct.
+      order_by: [{ field: week_start, dir: asc }]
+    # "week over week" is open-ended: net sales alone by week is also correct.
     also_accept:
       - metrics: [total_net_sales]
-        dimensions: [iso_week]
+        dimensions: [week_start]
         filters: [{ field: product_name, op: "=", value: "Cappuccino" }]
-        order_by: [{ field: iso_week, dir: asc }]
+        order_by: [{ field: week_start, dir: asc }]
 
   - id: online-sales
     question: "What were total net sales for online orders only?"
@@ -129,9 +128,9 @@ cases:
     tags: [time-series, single-table]
     expected:
       metrics: [traffic]
-      dimensions: [iso_year, iso_week]
-      order_by: [{ field: iso_year, dir: asc }, { field: iso_week, dir: asc }]
-    # "by week" may reasonably mean iso_week alone (not split by year).
+      dimensions: [week_start]
+      order_by: [{ field: week_start, dir: asc }]
+    # "by week" may also mean the year-agnostic week number (iso_week).
     also_accept:
       - metrics: [traffic]
         dimensions: [iso_week]
@@ -168,9 +167,9 @@ cases:
     question: "How did Cappuccino net sales trend over the last 6 weeks by week?"
     tags: [time-window, relative, semantic-sql]
     expected_sql: >
-      SELECT iso_week, total_net_sales FROM product_sales
+      SELECT week_start, total_net_sales FROM product_sales
       WHERE product_name = 'Cappuccino' AND date >= last_period(6, 'week')
-      GROUP BY iso_week ORDER BY iso_week
+      GROUP BY week_start ORDER BY week_start
 
   - id: products-over-threshold
     question: "Which products have more than 10000 in net sales?"

@@ -50,8 +50,16 @@ dimensions:
       description: "Month of year 1-12, year-agnostic — compare the same month across years (e.g. Jan 2025 vs Jan 2026).",
       synonyms: [month number, month of year, seasonal month],
       sample_values: [1, 2, 12] }
+  # start date (ISO Monday) of the week — the chronological weekly bucket for
+  # trends and week-over-week; carries the year, so it never collides across years.
+  - { table: fact_sales, name: week_start, expr: "date(date, '-6 days', 'weekday 1')",
+      type: date,
+      description: "Start date (Monday) of the ISO week — the weekly bucket for trends and week-over-week.",
+      synonyms: [week, week starting, week over week, weekly, week start],
+      sample_values: ["2026-11-09", "2026-11-16"] }
   - { table: fact_sales, name: iso_week, column: iso_week, type: week,
-      synonyms: [week, week number] }
+      description: "Week number 1-52, year-agnostic — for comparing the same week across years.",
+      synonyms: [week number, week of year] }
   - { table: fact_sales, name: iso_year, column: iso_year, type: year,
       synonyms: [year] }
   - { table: fact_sales, name: store_id, column: store_id,
@@ -104,8 +112,8 @@ metrics:
 verified_queries:
   - question: "How is Cappuccino performing week over week?"
     sql: >
-      SELECT iso_week, total_net_sales, units_sold FROM product_sales
-      WHERE product_name = 'Cappuccino' GROUP BY iso_week ORDER BY iso_week
+      SELECT week_start, total_net_sales, units_sold FROM product_sales
+      WHERE product_name = 'Cappuccino' GROUP BY week_start ORDER BY week_start
   - question: "Net sales by market in the last 30 days"
     sql: >
       SELECT market, total_net_sales FROM product_sales
@@ -118,11 +126,11 @@ verified_queries:
   # engine lowers it over a deterministic base aggregate; alias the derived column.
   - question: "What is the week-over-week percent change in Cappuccino net sales?"
     sql: >
-      SELECT iso_week, total_net_sales,
-        100.0 * (total_net_sales - LAG(total_net_sales) OVER (ORDER BY iso_week))
-        / LAG(total_net_sales) OVER (ORDER BY iso_week) AS pct_change
+      SELECT week_start, total_net_sales,
+        100.0 * (total_net_sales - LAG(total_net_sales) OVER (ORDER BY week_start))
+        / LAG(total_net_sales) OVER (ORDER BY week_start) AS pct_change
       FROM product_sales WHERE product_name = 'Cappuccino'
-      GROUP BY iso_week ORDER BY iso_week
+      GROUP BY week_start ORDER BY week_start
   # relative month window: anchor to the data with last_period — do NOT list literal
   # months. Same pattern as the 30-day window above, but for months.
   - question: "Net sales by month over the last 3 months"

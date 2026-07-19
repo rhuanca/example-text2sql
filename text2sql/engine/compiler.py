@@ -220,8 +220,11 @@ def _where(ir, model, dialect, qualify: bool):
     if ir.time:
         d = model.dimension(ir.time.field)
         tbl = qi(model.table(d.table).table)
-        colexpr = f"{tbl}.{qi(d.column)}" if qualify else qi(d.column)
-        clauses.append(_time_clause(ir.time, qi(d.column), tbl, colexpr, dialect))
+        # derived-aware: a derived time dim (e.g. week_start) has no physical column,
+        # so use its expr both as the LHS and inside the MAX(...) data anchor.
+        colexpr = _col_sql(model, d, dialect, qualify)
+        anchor_col = _col_sql(model, d, dialect, qualify=False)
+        clauses.append(_time_clause(ir.time, anchor_col, tbl, colexpr, dialect))
 
     return " AND ".join(clauses), params
 

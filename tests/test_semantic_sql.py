@@ -297,6 +297,39 @@ class TestEndToEnd(SqlCase):
         # every month has non-zero sales in BOTH years (no degenerate zero column)
         self.assertTrue(all(r[1] and r[2] for r in rows), rows)
 
+    def test_week_start_dimension_labels_weeks_by_date(self):
+        # Week-over-week trends bucket by week_start (the ISO Monday date), not the
+        # bare iso_week number — so the axis reads as dates, chronologically.
+        import re
+        d = self.model.dimension("week_start")
+        self.assertEqual(d.type, "date")
+        self.assertTrue(d.expr)  # derived from the date column
+        sql, params, _ = compile_semantic_sql(
+            "SELECT week_start, total_net_sales FROM product_sales "
+            "WHERE product_name = 'Cappuccino' AND date >= last_period(6, 'week') "
+            "GROUP BY week_start ORDER BY week_start",
+            self.model, self.dialect,
+        )
+        _, rows = SqliteExecutor(self.db).run(sql, params)
+        weeks = [r[0] for r in rows]
+        self.assertTrue(weeks)
+        self.assertTrue(all(re.match(r"^\d{4}-\d{2}-\d{2}$", w) for w in weeks))  # dates
+        self.assertEqual(weeks, sorted(weeks))       # chronological
+        self.assertLessEqual(len(weeks), 7)          # ~6 recent weeks
+
+    def test_time_window_on_a_derived_dimension_compiles(self):
+        # regression: a last_period window on a DERIVED date dim (week_start has no
+        # physical column) must lower to its expr, not crash on a None column.
+        sql, params, _ = compile_semantic_sql(
+            "SELECT week_start, total_net_sales FROM product_sales "
+            "WHERE week_start >= last_period(6, 'week') GROUP BY week_start "
+            "ORDER BY week_start",
+            self.model, self.dialect,
+        )
+        _, rows = SqliteExecutor(self.db).run(sql, params)
+        self.assertTrue(rows)
+        self.assertLessEqual(len(rows), 8)  # restricted to recent weeks, not all
+
     def test_last_period_month_window_restricts_rows(self):
         sql, params, _ = compile_semantic_sql(
             "SELECT month, total_net_sales FROM product_sales "
