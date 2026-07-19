@@ -6,86 +6,43 @@
       "image": "/home/renan/src-mydev/example-text2sql/slides/assets/rosetta-stone.jpg",
       "eyebrow": "THE BIG IDEA",
       "title": "A Rosetta Stone\nfor your data",
-      "subtitle": "A semantic IR translates plain-English questions into SQL — the way the stone let scholars read a lost language through one they already knew.",
+      "subtitle": "A governed semantic model lets an LLM answer plain-English questions in SQL — the way the stone let scholars read a lost language through one they already knew.",
       "caption": "The Rosetta Stone — photo by Hans Hillewaert, licensed CC BY-SA 4.0 (Wikimedia Commons)."
     },
     {
-      "type": "diagram",
-      "title": "What is an IR (Intermediate Representation)?",
-      "rows": [
-        [
-          {
-            "id": "q",
-            "title": "Natural-language question",
-            "subtitle": "\"net sales by city, last 30 days\"",
-            "group": "neutral"
-          }
-        ],
-        [
-          {
-            "id": "ir",
-            "title": "IR — a Semantic Query",
-            "subtitle": "a structured, validated pick: metrics · dimensions · filters · time",
-            "group": "highlight"
-          }
-        ],
-        [
-          {
-            "id": "sql",
-            "title": "SQL",
-            "subtitle": "executable query",
-            "group": "neutral"
-          }
-        ]
-      ],
-      "edges": [
-        [
-          "q",
-          "ir"
-        ],
-        [
-          "ir",
-          "sql"
-        ]
-      ],
-      "caption": "An IR is the structured middle step between a question and SQL — the same idea compilers use (source code → IR → machine code). The LLM writes the IR; deterministic code writes the SQL."
-    },
-    {
       "type": "panels",
-      "title": "Why not just let the LLM write SQL?",
+      "title": "The problem with pointing an LLM at your database",
       "arrows": false,
       "mono": false,
       "panels": [
         {
-          "title": "LLM writes SQL",
+          "title": "Raw LLM → your tables",
           "subtitle": "risky",
           "group": "fuzzy",
           "lines": [
-            "Invents columns that don't exist",
-            "Wrong joins → silently wrong numbers",
-            "Raw values → SQL injection",
-            "Non-deterministic: same question,",
-            "different SQL"
+            "Invents columns and tables",
+            "Guesses joins → silently wrong",
+            "Freeform SQL → injection, deletes",
+            "Same question, different SQL"
           ]
         },
         {
-          "title": "LLM fills an IR",
+          "title": "LLM → validated semantic SQL",
           "subtitle": "safe",
           "group": "highlight",
           "lines": [
-            "Only fields that exist in the model",
-            "Joins & aggregation by tested code",
-            "Values always bound as parameters",
-            "Deterministic: same IR → same SQL,",
-            "every time"
+            "Only your model's metrics & dims",
+            "Joins & fan-out by tested code",
+            "Parsed, SELECT-only, values bound",
+            "Normalized to one IR → deterministic"
           ]
         }
       ],
-      "caption": "The IR constrains the model to valid choices, then deterministic code does the rest — so it can't hallucinate columns, double-count, or drift."
+      "caption": "Our engine still lets the model write SQL — but over a virtual table of your governed metrics and dimensions, and every query is parsed and validated before it can run."
     },
     {
       "type": "diagram",
-      "title": "The pipeline: question → IR → SQL",
+      "title": "The pipeline: question → validated SQL → answer",
       "rows": [
         [
           {
@@ -97,33 +54,33 @@
         ],
         [
           {
-            "id": "planner",
-            "title": "Planner — LLM",
-            "subtitle": "the only fuzzy step",
+            "id": "llm",
+            "title": "Planner — LLM writes semantic SQL",
+            "subtitle": "SELECT over ONE virtual table (metrics + dimensions)",
             "group": "fuzzy"
+          }
+        ],
+        [
+          {
+            "id": "val",
+            "title": "Parse + Validate",
+            "subtitle": "sqlglot + model check — the safety boundary",
+            "group": "highlight"
           }
         ],
         [
           {
             "id": "ir",
             "title": "Semantic Query (IR)",
-            "subtitle": "the contract — metrics · dimensions · filters",
-            "group": "highlight"
+            "subtitle": "metrics · dimensions · filters · time",
+            "group": "accent"
           }
         ],
         [
           {
             "id": "compiler",
             "title": "Compiler",
-            "subtitle": "pure · deterministic",
-            "group": "neutral"
-          }
-        ],
-        [
-          {
-            "id": "sql",
-            "title": "SQL",
-            "subtitle": "parameterized · SELECT-only",
+            "subtitle": "pure · deterministic → parameterized, SELECT-only SQL",
             "group": "neutral"
           }
         ],
@@ -131,7 +88,7 @@
           {
             "id": "db",
             "title": "Database",
-            "subtitle": "SQLite · Postgres",
+            "subtitle": "SQLite · Postgres · MySQL",
             "group": "neutral"
           }
         ]
@@ -139,10 +96,14 @@
       "edges": [
         [
           "q",
-          "planner"
+          "llm"
         ],
         [
-          "planner",
+          "llm",
+          "val"
+        ],
+        [
+          "val",
           "ir"
         ],
         [
@@ -151,139 +112,56 @@
         ],
         [
           "compiler",
-          "sql"
-        ],
-        [
-          "sql",
           "db"
         ]
       ],
-      "caption": "The LLM never writes SQL — it only emits the IR. Everything from the IR down is pure, tested code, so it can't hallucinate columns or joins."
+      "caption": "The LLM authors SQL, but only over a virtual model table; parse + validate is the boundary. From the IR down it's pure, tested code, so joins and aggregation can't drift or double-count."
     },
     {
       "type": "code",
       "title": "The system prompt (built from the YAML model)",
-      "code": "You translate natural-language questions into a structured query (an IR) for a semantic model. You do NOT write SQL.\nSelect only from the metrics and dimensions listed below; resolve the user's wording to these canonical names using the synonyms.\nAlways answer by calling the emit_query tool.\n\nMETRICS (aggregated measures):\n- total_net_sales  [synonyms: sales, net sales, revenue, total sales, product sales]\n- units_sold  [synonyms: units, quantity sold, items sold, volume]\n- traffic  [synonyms: orders, order count, checks, transactions, traffic]\n- total_budget  [synonyms: budget, budgeted sales, sales target, budget target, plan]\n\nDIMENSIONS (group-by / filter attributes):\n- product_name  [synonyms: item, product, sku name; examples: Cappuccino, Americano, Black Coffee]\n- category_name  [synonyms: category, product category, item category; examples: Espresso Drinks, Coffee, Pastries]\n- purchase_location  [synonyms: channel, sales channel, in-store vs online, where purchased; examples: At Shop, Online]\n- date  [synonyms: business date, transaction date, day]\n- iso_week  [synonyms: week, week number]\n- iso_year  [synonyms: year]\n- store_id  [synonyms: store, location, fc, store code, franchise code]\n- market  [synonyms: market, area, territory; examples: Houston, Dallas, San Antonio]\n- region  [synonyms: region, division]\n- state  [synonyms: state]\n- corporate_franchise  [synonyms: ownership type, corp vs franchise, corporate vs franchise; examples: Corporate, Franchise]\n- lifecycle_stage  [synonyms: store status, lifecycle, operational status; examples: Open, Temporarily Closed, Terminated]\n\nRULES:\n- order_by fields must be among the selected metrics/dimensions.\n- For 'last N days' style ranges use the time window (a date dimension + last_n_days).\n- Filters compare a dimension to a value with one of: =, !=, <, <=, >, >=, in, not in, like.\n\nEXAMPLES:\nQ: How is Cappuccino performing week over week?\nIR: {\"metrics\": [\"total_net_sales\", \"units_sold\"], \"dimensions\": [\"product_name\", \"iso_year\", \"iso_week\"], \"filters\": [{\"field\": \"product_name\", \"op\": \"=\", \"value\": \"Cappuccino\"}], \"order_by\": [{\"field\": \"iso_week\", \"dir\": \"asc\"}]}\nQ: Net sales by market last 30 days\nIR: {\"metrics\": [\"total_net_sales\"], \"dimensions\": [\"market\"], \"time\": {\"field\": \"date\", \"last_n_days\": 30}}\nQ: Budget vs actual by store\nIR: {\"metrics\": [\"total_net_sales\", \"total_budget\"], \"dimensions\": [\"store_id\"]}",
+      "code": "You translate natural-language questions into SQL over a semantic layer.\nWrite ONE SQL SELECT against a single virtual table named `product_sales`.\nIts only columns are the dimensions and metrics listed below. Metrics are already-aggregated measures — select them by name; do NOT wrap them in SUM/COUNT/etc. Never join, never reference physical tables or columns, and never use SELECT *.\n\nABOUT THE DATA (background only — you still write ONE SELECT over `product_sales`; the engine resolves any joins for you):\n- fact_sales — Combined in-store (NCR/POS) and online (OLO) product-level transaction detail. One order has many rows. (grain: one row per product line per transaction)\n- dim_store — Store/franchise master: one row per store, with geography, ownership type, and lifecycle status.\n- fact_budget — Planned daily net sales targets. One row per store per day. (grain: one row per store per calendar day)\n\nDIMENSIONS (group-by / filter columns):\n- product_name  [synonyms: item, product, sku name; examples: Cappuccino, Americano, Black Coffee]\n- category_name  [synonyms: category, product category, item category; examples: Espresso Drinks, Coffee, Pastries]\n- purchase_location  [synonyms: channel, sales channel, in-store vs online, where purchased; examples: At Shop, Online]\n- date  [synonyms: business date, transaction date, day]\n- month — Calendar month (one bucket per month per year).  [synonyms: month, calendar month, year month; examples: 2026-07-01, 2026-08-01]\n- month_of_year — Month of year 1-12, year-agnostic — compare the same month across years (e.g. Jan 2025 vs Jan 2026).  [synonyms: month number, month of year, seasonal month; examples: 1, 2, 12]\n- week_start — Start date (Monday) of the ISO week — the weekly bucket for trends and week-over-week.  [synonyms: week, week starting, week over week, weekly, week start; examples: 2026-11-09, 2026-11-16]\n- iso_week — Week number 1-52, year-agnostic — for comparing the same week across years.  [synonyms: week number, week of year]\n- iso_year  [synonyms: year]\n- store_id  [synonyms: store, location, fc, store code, franchise code]\n- market  [synonyms: market, area, territory; examples: Houston, Dallas, San Antonio]\n- region  [synonyms: region, division]\n- state  [synonyms: state]\n- corporate_franchise  [synonyms: ownership type, corp vs franchise, corporate vs franchise; examples: Corporate, Franchise]\n- lifecycle_stage  [synonyms: store status, lifecycle, operational status; examples: Open, Temporarily Closed, Terminated]\n\nMETRICS (already aggregated — select by name):\n- total_net_sales  [synonyms: sales, net sales, revenue, total sales, product sales; unit: usd]\n- units_sold  [synonyms: units, quantity sold, items sold, volume; unit: count]\n- traffic  [synonyms: orders, order count, checks, transactions, traffic; unit: count]\n- total_budget  [synonyms: budget, budgeted sales, sales target, budget target, plan; unit: usd]\n\nRULES:\n- SELECT only dimension and metric columns by name; GROUP BY every dimension you select alongside a metric.\n- WHERE compares a dimension to a literal with =, !=, <, <=, >, >=, IN, NOT IN, or LIKE. Combine conditions with AND.\n- Relative time: use last_period(N, 'day'|'week'|'month') on a date dimension, e.g. `WHERE <date_dim> >= last_period(6, 'week')`. It resolves to the last N periods present in the DATA — never write today's date, a literal date range, or guessed week/month numbers.\n- Filter aggregated measures with HAVING (e.g. `HAVING <metric> > 1000`).\n- Rank with `ORDER BY <col> [DESC]` and `LIMIT N`.\n- For 'week over week' or a trend over many periods, SELECT the time dimension plus any category so it renders as a line (do NOT pivot).\n- To compare a metric across a FEW named periods side by side (e.g. 2025 vs 2026), write a CASE pivot: one `AGG(CASE WHEN <period_dim> = <value> THEN <metric> END)` column per period, grouped by the row bucket — it renders as a grouped bar. Use the metric's own aggregate (SUM for a sum metric).\n\nEXAMPLES:\nQ: How is Cappuccino performing week over week?\nSQL: SELECT week_start, total_net_sales, units_sold FROM product_sales WHERE product_name = 'Cappuccino' GROUP BY week_start ORDER BY week_start\nQ: Net sales by market in the last 30 days\nSQL: SELECT market, total_net_sales FROM product_sales WHERE date >= last_period(30, 'day') GROUP BY market\nQ: Budget vs actual by store\nSQL: SELECT store_id, total_net_sales, total_budget FROM product_sales GROUP BY store_id\nQ: What is the week-over-week percent change in Cappuccino net sales?\nSQL: SELECT week_start, total_net_sales, 100.0 * (total_net_sales - LAG(total_net_sales) OVER (ORDER BY week_start)) / LAG(total_net_sales) OVER (ORDER BY week_start) AS pct_change FROM product_sales WHERE product_name = 'Cappuccino' GROUP BY week_start ORDER BY week_start\nQ: Net sales by month over the last 3 months\nSQL: SELECT month, total_net_sales FROM product_sales WHERE date >= last_period(3, 'month') GROUP BY month ORDER BY month\nQ: Compare net sales by month for 2025 versus 2026\nSQL: SELECT month_of_year, SUM(CASE WHEN iso_year = 2025 THEN total_net_sales END) AS net_sales_2025, SUM(CASE WHEN iso_year = 2026 THEN total_net_sales END) AS net_sales_2026 FROM product_sales GROUP BY month_of_year ORDER BY month_of_year",
       "size": 9,
-      "caption": "Emitted by build_system_prompt(model). It is the LLM's rulebook — note line 1: 'You do NOT write SQL.' Sent as the system message; the user's question is the only user input."
-    },
-    {
-      "type": "diagram",
-      "title": "How the LLM translates a question into IR",
-      "rows": [
-        [
-          {
-            "id": "schema",
-            "title": "JSON Schema",
-            "subtitle": "the grammar",
-            "group": "accent"
-          },
-          {
-            "id": "prompt",
-            "title": "System prompt",
-            "subtitle": "the vocabulary",
-            "group": "accent"
-          },
-          {
-            "id": "examples",
-            "title": "Examples",
-            "subtitle": "the mapping",
-            "group": "accent"
-          }
-        ],
-        [
-          {
-            "id": "llm",
-            "title": "LLM",
-            "subtitle": "picks the fields",
-            "group": "neutral"
-          }
-        ],
-        [
-          {
-            "id": "ir",
-            "title": "Semantic Query (IR)",
-            "subtitle": "metrics · dimensions · filters",
-            "group": "highlight"
-          }
-        ]
-      ],
-      "edges": [
-        [
-          "schema",
-          "llm"
-        ],
-        [
-          "prompt",
-          "llm"
-        ],
-        [
-          "examples",
-          "llm"
-        ],
-        [
-          "llm",
-          "ir"
-        ]
-      ],
-      "caption": "Schema fixes the shape · prompt gives the words · examples show the pattern — so the IR only ever uses fields from your model."
-    },
-    {
-      "type": "table",
-      "title": "The IR pattern: the schema is a form, the planner fills it in",
-      "intro": "Q:  \"How is Cappuccino performing week over week?\"",
-      "columns": [
-        "field",
-        "schema  (the blank)",
-        "planner output  (filled in)"
-      ],
-      "col_widths": [
-        0.18,
-        0.34,
-        0.48
-      ],
-      "accent_col": 2,
-      "rows": [
-        [
-          "metrics",
-          "array<string>  · required",
-          "[\"total_net_sales\", \"units_sold\"]"
-        ],
-        [
-          "dimensions",
-          "array<string>  · required",
-          "[\"product_name\", \"iso_year\", \"iso_week\"]"
-        ],
-        [
-          "filters",
-          "[{field, op, value}]",
-          "[{ product_name = \"Cappuccino\" }]"
-        ],
-        [
-          "order_by",
-          "[{field, dir}]",
-          "[{ iso_week, asc }]"
-        ],
-        [
-          "time",
-          "{field, last_n_days}",
-          "— optional (left empty)"
-        ],
-        [
-          "limit",
-          "integer",
-          "— optional (left empty)"
-        ]
-      ],
-      "caption": "The schema defines the blanks (and their types); the planner fills them in — same shape every time, so the compiler can trust it and the LLM can't drift into freeform SQL."
+      "caption": "Emitted by build_system_prompt(model): the LLM's rulebook — it describes the one virtual table (your metrics and dimensions) it may SELECT from. Sent as the system message; the question is the only user input."
     },
     {
       "type": "panels",
-      "title": "The compiler: IR → SQL, deterministically",
+      "title": "Validation is the safety boundary",
+      "panels": [
+        {
+          "title": "Rejected",
+          "subtitle": "before it runs",
+          "group": "fuzzy",
+          "lines": [
+            "an unknown column or metric",
+            "a JOIN or a subquery",
+            "a physical table name",
+            "INSERT / UPDATE / DELETE",
+            "an unlisted function"
+          ]
+        },
+        {
+          "title": "Allowed",
+          "subtitle": "over the virtual table",
+          "group": "highlight",
+          "lines": [
+            "SELECT of model metrics / dimensions",
+            "WHERE  (+ a last_period window)",
+            "GROUP BY · HAVING · ORDER · LIMIT",
+            "CASE pivots  → period comparisons",
+            "window funcs → period-over-period"
+          ]
+        }
+      ],
+      "caption": "If the SQL references anything not in the model — or isn't a read over the one virtual table — it's rejected (semantic_sql.py + validator.py), and the engine re-plans with the error in a bounded repair loop."
+    },
+    {
+      "type": "panels",
+      "title": "The compiler: IR → physical SQL, deterministically",
       "panels": [
         {
           "title": "IR",
-          "subtitle": "from the planner",
+          "subtitle": "from validation",
           "group": "accent",
           "lines": [
             "metrics:",
@@ -302,7 +180,8 @@
             "metric        ->  SUM(CASE...)",
             "dimension     ->  GROUP BY",
             "filter        ->  WHERE = ?",
-            "relationship  ->  JOIN"
+            "relationship  ->  JOIN",
+            "2 fact tables ->  fan-out guard"
           ]
         },
         {
@@ -318,19 +197,130 @@
           ]
         }
       ],
-      "caption": "Same rules every time: each IR field maps to a fixed SQL clause. No LLM here — so the output is deterministic, parameterized (no injection), and SELECT-only."
+      "caption": "Each IR field maps to a fixed SQL clause. The fan-out guard aggregates each fact table in its own subquery before joining — so a budget row is never multiplied by raw sales lines."
+    },
+    {
+      "type": "diagram",
+      "title": "One model, any database: cross-dialect portability",
+      "rows": [
+        [
+          {
+            "id": "ir",
+            "title": "Semantic Query (IR)",
+            "subtitle": "one plan",
+            "group": "highlight"
+          }
+        ],
+        [
+          {
+            "id": "sqlite",
+            "title": "SQLite",
+            "subtitle": "date(d,'start of month')",
+            "group": "accent"
+          },
+          {
+            "id": "pg",
+            "title": "Postgres",
+            "subtitle": "date_trunc('month', d)",
+            "group": "accent"
+          },
+          {
+            "id": "mysql",
+            "title": "MySQL",
+            "subtitle": "DATE_FORMAT(d,'%Y-%m-01')",
+            "group": "accent"
+          }
+        ]
+      ],
+      "edges": [
+        [
+          "ir",
+          "sqlite"
+        ],
+        [
+          "ir",
+          "pg"
+        ],
+        [
+          "ir",
+          "mysql"
+        ]
+      ],
+      "caption": "The same IR compiles through a small Dialect seam (engine/dialects/) to each engine's SQL — so the product runs on a client's own Postgres or MySQL, unchanged. Data never leaves their infrastructure."
     },
     {
       "type": "image",
       "title": "Anatomy of the product_sales semantic model",
       "image": "/home/renan/src-mydev/example-text2sql/slides/assets/semantic-anatomy.png",
-      "caption": "Six building blocks in one models/sales.yml: 3 tables joined by 2 relationships expose 4 facts, 12 dimensions and 4 metrics; 3 examples teach the planner. (Mirrors a Snowflake semantic view.)"
+      "caption": "One models/sales.yml: 3 tables joined by 2 relationships expose 3 facts, 15 dimensions and 4 metrics; 6 verified queries teach and test the planner. (Mirrors a Snowflake semantic view.)"
     },
     {
       "type": "image",
       "title": "Synonyms: many phrasings → one canonical name",
       "image": "/home/renan/src-mydev/example-text2sql/slides/assets/synonyms-map.png",
-      "caption": "Every metric and dimension lists its synonyms, so the planner resolves free wording to one canonical name — the only name the schema, compiler and SQL ever see. This is what makes the NL → IR mapping work."
+      "caption": "Every metric and dimension lists its synonyms, so the planner resolves free wording to the one canonical name the schema, compiler and SQL ever see — what makes NL → SQL reliable."
+    },
+    {
+      "type": "panels",
+      "title": "Answers, not just tables: deterministic charts + storytelling",
+      "panels": [
+        {
+          "title": "Decide",
+          "subtitle": "chart from shape",
+          "group": "accent",
+          "lines": [
+            "time dim   → line / area",
+            "category   → bar (top-N + Other)",
+            "two dims   → heatmap / facets",
+            "scalar     → a number tile"
+          ]
+        },
+        {
+          "title": "Narrate",
+          "subtitle": "state the takeaway",
+          "group": "highlight",
+          "lines": [
+            "title = the point",
+            "average / reference lines",
+            "peak & latest callouts",
+            "honest when a breakdown drops"
+          ]
+        },
+        {
+          "title": "Build + place",
+          "subtitle": "Vega-Lite",
+          "group": "accent",
+          "lines": [
+            "line · area · bar · scatter",
+            "heatmap · faceted multiples",
+            "user can switch chart type",
+            "prose summary sits above"
+          ]
+        }
+      ],
+      "caption": "The chart is chosen deterministically from the query shape, then a narrate layer adds the takeaway — no LLM in the visual, so it can't mislead. Portable Vega-Lite specs render the same in the app and a future React front end."
+    },
+    {
+      "type": "two_column",
+      "title": "You can measure it: observability + evals",
+      "left": [
+        "Observability (local-first)",
+        "Every turn logged to a local traces.db",
+        "Per-call token + cost capture",
+        "Stable thread id per conversation",
+        "Optional LangSmith tracing (off by default)"
+      ],
+      "right": [
+        "Evals + quality trend",
+        "Execution accuracy per semantic model",
+        "IR component F1 (metrics / dims / filters)",
+        "Committed history → a visible trend",
+        "CI regression gate (--min-accuracy)"
+      ]
+    },
+    {
+      "type": "section",
+      "title": "The LLM proposes. Tested code disposes."
     }
   ]
 }

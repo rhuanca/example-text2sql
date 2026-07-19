@@ -1,0 +1,133 @@
+{
+  "theme": "personal",
+  "slides": [
+    {
+      "type": "title",
+      "title": "Talk to your data.\nGet answers you can trust.",
+      "subtitle": "Natural-language analytics over your own database — governed by a semantic layer, so the numbers are right."
+    },
+    {
+      "type": "bullets",
+      "title": "Every business question waits in a queue",
+      "bullets": [
+        "Answers are gated by SQL and a short list of analysts.",
+        "BI dashboards answer yesterday's questions, not today's.",
+        "Point a raw LLM at the database and it invents columns and joins — confident, and wrong.",
+        "So teams either wait, or trust numbers no one checked."
+      ]
+    },
+    {
+      "type": "section",
+      "title": "Ask in plain English. Governed by your semantic model."
+    },
+    {
+      "type": "panels",
+      "title": "Why the numbers are right",
+      "panels": [
+        {
+          "title": "A raw AI SQL bot",
+          "subtitle": "unsafe",
+          "group": "fuzzy",
+          "lines": [
+            "Guesses column and table names",
+            "Wrong joins → silently wrong totals",
+            "Can write anything (deletes, injection)",
+            "Different SQL every time"
+          ]
+        },
+        {
+          "title": "A governed semantic layer",
+          "subtitle": "trustworthy",
+          "group": "highlight",
+          "lines": [
+            "Only your defined metrics & dimensions",
+            "Joins & totals by tested code",
+            "Read-only, validated before it runs",
+            "Honest when it can't answer a cut"
+          ]
+        }
+      ],
+      "caption": "The AI can only pick from the metrics and dimensions you define — it cannot invent a column or a join. Every query is checked before it runs."
+    },
+    {
+      "type": "stat",
+      "stat": "0",
+      "label": "rows leave your database",
+      "context": "It runs on your own SQLite, Postgres, or MySQL through a portable semantic layer — no data warehouse to migrate to, no data handed to a third party."
+    },
+    {
+      "type": "two_column",
+      "title": "What your team gets",
+      "left": [
+        "In the answer",
+        "A chart that states the takeaway",
+        "The exact numbers, and the table",
+        "Follow-ups that keep context",
+        "“Interpreted as…” + Show SQL, always"
+      ],
+      "right": [
+        "Around it",
+        "A live map of your metrics & data",
+        "Honest notes when a breakdown drops",
+        "Chat, or switch the chart type yourself",
+        "Works from day one on your model"
+      ]
+    },
+    {
+      "type": "two_column",
+      "title": "Quality you can see — and watch improve",
+      "left": [
+        "We measure accuracy",
+        "Scored per semantic model",
+        "Against verified, golden questions",
+        "On every change to the engine"
+      ],
+      "right": [
+        "And track the trend",
+        "A committed history of scores",
+        "A chart of quality over time",
+        "So you see it going up, not just claimed"
+      ]
+    },
+    {
+      "type": "two_column",
+      "title": "Where it fits",
+      "left": [
+        "It is NOT",
+        "a raw LLM writing SQL (unsafe)",
+        "a warehouse you migrate onto (lock-in)",
+        "one more dashboard to maintain"
+      ],
+      "right": [
+        "It IS",
+        "a conversational layer over governed metrics",
+        "dbt / Cube-style governance, in plain English",
+        "portable across your own databases"
+      ]
+    },
+    {
+      "type": "bullets",
+      "title": "Onboarding a new client",
+      "bullets": [
+        "Point it at the semantic model: your tables, metrics, dimensions, joins.",
+        "Add verified questions — these both teach the AI and become its evals.",
+        "It's live: your team asks questions; you watch the accuracy trend.",
+        "Runs in your infrastructure, on the database you already have."
+      ]
+    },
+    {
+      "type": "bullets",
+      "title": "Where it's going",
+      "bullets": [
+        "Multi-tenant with authentication and roles.",
+        "More database engines behind the same semantic layer.",
+        "A polished, brandable web front end (React / Next.js).",
+        "Deeper analytics: comparisons, trends, and forecasts."
+      ]
+    },
+    {
+      "type": "section",
+      "title": "Your data, your database, in plain English."
+    }
+  ]
+}

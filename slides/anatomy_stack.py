@@ -11,6 +11,7 @@ a coloured bracket on the right groups the bars into their band.
 -> writes slides/assets/semantic-anatomy.png
 """
 
+import sys
 from pathlib import Path
 
 import matplotlib
@@ -23,6 +24,10 @@ AMBER = "#F2A20E"
 GRAY = "#5C6470"
 
 REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
+from text2sql.semantic.model import load_model
+
+M = load_model(REPO / "models" / "sales.yml")  # counts read live so they never drift
 OUT = REPO / "slides" / "assets" / "semantic-anatomy.png"
 OUT.parent.mkdir(parents=True, exist_ok=True)
 
@@ -53,17 +58,17 @@ def band(y0, y1, color, label):
             fontsize=12, fontweight="bold", zorder=4)
 
 
-# bars, top (foundation) -> bottom (most abstract)
-bar(45, TEAL,  "tables (3) + relationships (2)",
+# bars, top (foundation) -> bottom (most abstract) — counts read from the live model
+bar(45, TEAL,  f"tables ({len(M.tables)}) + relationships ({len(M.relationships)})",
     "fact_sales · dim_store · fact_budget  —  joined on store_id")
-bar(38, TEAL,  "facts (4)",
+bar(38, TEAL,  f"facts ({len(M.facts)})",
     "raw measure columns  —  item_net_sales · quantity · budget_net_sales")
-bar(28, AMBER, "dimensions (12)",
+bar(28, AMBER, f"dimensions ({len(M.dimensions)})",
     "group-by / filter attributes  —  market · product · date · …")
-bar(21, AMBER, "metrics (4)",
+bar(21, AMBER, f"metrics ({len(M.metrics)})",
     "named aggregations  —  total_net_sales = SUM(…) · units_sold · …")
-bar(11, GRAY,  "examples (3)",
-    "Q → IR few-shot pairs  —  teach the planner")
+bar(11, GRAY,  f"verified queries ({len(M.verified_queries)})",
+    "Q → SQL pairs  —  teach and test the planner")
 
 # bands (brackets + labels on the right)
 band(34.6, 48.4, TEAL,  "the\ndatabase")

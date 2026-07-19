@@ -15,7 +15,7 @@ build/
 
 # Generated files
 *.pptx
-build_deck.py
+build_deck*.py
 
 # Rendered diagrams (regenerate from docs/diagrams/*.spec.json via the
 # themed-diagrams skill; keep the .spec.json + .md sources, not the PNGs)
