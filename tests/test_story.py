@@ -48,6 +48,21 @@ class TestChooseStory(unittest.TestCase):
         self.assertIn("2026 vs 2025", story.title)
         self.assertIn("+10%", story.title)            # (209-190)/190
 
+    def test_categorical_comparison_has_no_growth_delta(self):
+        # Revenue vs Expense are categories, not ordered periods — the headline must
+        # not read as a period-over-period decline (the old "Expense vs Revenue: -20%").
+        cmp = Comparison.from_dict({"metric": "total_amount", "split_by": "month",
+                                    "period_field": "classification",
+                                    "periods": ["Revenue", "Expense"]})
+        cols = ["month", "total_amount_Revenue", "total_amount_Expense"]
+        rows = [("Jun 2026", 952956.86, 762365.42)]
+        story = choose_story(cmp, choose_chart(cmp, cols, rows), cols, rows,
+                             units={"total_amount": "usd"}, types={"classification": "text"})
+        # larger-vs-smaller framing, ordered high first, no misleading negative delta
+        self.assertEqual(story.title, "Revenue exceeds Expense by 25%")
+        self.assertNotIn("-", story.title)
+        self.assertIn("Revenue", story.subtitle.split("vs")[0])  # Revenue listed first
+
     def test_table_and_number_have_no_story(self):
         self.assertIsNone(choose_story(sq(["x"], []), ChartSpec("number", y=["x"]),
                                        ["x"], [(1,)]))

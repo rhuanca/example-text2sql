@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .charts import is_time_like
 from .plots import _fmt_number, month_label
 
 
@@ -60,7 +61,7 @@ def choose_story(ir, spec, columns, rows, units=None, types=None) -> "StorySpec 
     units = units or {}
     types = types or {}
     if hasattr(ir, "period_field"):
-        return _comparison_story(ir, columns, rows, units)
+        return _comparison_story(ir, columns, rows, units, types)
     if spec.kind == "line" and len(spec.y) == 1 and not spec.series:
         return _trend_story(spec, columns, rows, units, types)
     if spec.kind == "bar" and spec.orientation == "horizontal" and len(spec.y) == 1:
@@ -117,7 +118,7 @@ def _topn_story(spec, columns, rows, units) -> "StorySpec | None":
     return story
 
 
-def _comparison_story(ir, columns, rows, units) -> "StorySpec | None":
+def _comparison_story(ir, columns, rows, units, types) -> "StorySpec | None":
     periods = list(ir.periods)
     if len(periods) != 2:
         return None
@@ -125,12 +126,25 @@ def _comparison_story(ir, columns, rows, units) -> "StorySpec | None":
     if len(ycols) < 2:
         return None
     sums = [sum((r[_idx(columns, c)] or 0) for r in rows) for c in ycols[:2]]
-    if not sums[0]:
-        return None
     fmt = lambda v: _fmt_number(v, units.get(ir.metric))  # noqa: E731
-    delta = (sums[1] - sums[0]) / abs(sums[0]) * 100
     story = StorySpec()
-    story.title = f"{periods[1]} vs {periods[0]}: {'+' if delta >= 0 else ''}{delta:.0f}%"
-    # subtitle in the same period order as the title, each labelled so it can't be misread
-    story.subtitle = f"{periods[1]} {fmt(sums[1])}  vs  {periods[0]} {fmt(sums[0])}"
+    # Temporal if the model declares it OR the name strongly implies it (iso_year, month).
+    temporal = is_time_like(ir.period_field, types) or is_time_like(ir.period_field, None)
+    if temporal:
+        # Ordered time periods -> a period-over-period growth headline (later vs earlier).
+        if not sums[0]:
+            return None
+        delta = (sums[1] - sums[0]) / abs(sums[0]) * 100
+        story.title = f"{periods[1]} vs {periods[0]}: {'+' if delta >= 0 else ''}{delta:.0f}%"
+        story.subtitle = f"{periods[1]} {fmt(sums[1])}  vs  {periods[0]} {fmt(sums[0])}"
+    else:
+        # Two categories (e.g. Revenue vs Expense) have no growth semantics — a signed
+        # delta would read as a decline. Frame it as larger-vs-smaller instead.
+        (p_hi, s_hi), (p_lo, s_lo) = sorted(zip(periods, sums), key=lambda t: t[1],
+                                            reverse=True)
+        story.subtitle = f"{p_hi} {fmt(s_hi)}  vs  {p_lo} {fmt(s_lo)}"
+        if s_lo:
+            story.title = f"{p_hi} exceeds {p_lo} by {(s_hi - s_lo) / abs(s_lo) * 100:.0f}%"
+        else:
+            story.title = f"{p_hi} vs {p_lo}"
     return story
