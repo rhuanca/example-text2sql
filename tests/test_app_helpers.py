@@ -281,6 +281,21 @@ class TestAppHelpers(unittest.TestCase):
         self.assertTrue(any(c == "Interpreted as: revenue of the past 6 days for Contoso SAS"
                             for c in st.captions))
 
+    def test_reset_session_clears_history_and_remints_thread(self):
+        state = {"history": [{"role": "user", "text": "hi"}], "thread_id": "old-thread",
+                 "dataset": "sales"}
+        app.reset_session(state)
+        self.assertEqual(state["history"], [])
+        self.assertNotEqual(state["thread_id"], "old-thread")
+        self.assertEqual(len(state["thread_id"]), 32)  # uuid4().hex
+        self.assertEqual(state["dataset"], "sales")  # dataset preserved
+
+    def test_reset_session_mints_distinct_threads(self):
+        a, b = {}, {}
+        app.reset_session(a)
+        app.reset_session(b)
+        self.assertNotEqual(a["thread_id"], b["thread_id"])
+
     def test_record_turn_maps_payload_to_store(self):
         from text2sql.trace.usage import LlmCall
         captured = {}

@@ -154,6 +154,14 @@ def record_turn(store, thread_id, dataset, question, payload, calls, latency_ms)
     )
 
 
+def reset_session(session_state) -> None:
+    """Start a fresh conversation: clear the chat and mint a new thread_id (the old
+    conversation's rows stay in traces.db). Dict-style access so it works with both
+    st.session_state and a plain dict (tests)."""
+    session_state["history"] = []
+    session_state["thread_id"] = uuid.uuid4().hex
+
+
 def safe_summarize(summarizer, question, columns, rows) -> str:
     try:
         text = summarizer.summarize(question, columns, rows)
@@ -348,6 +356,9 @@ def main():
             format_func=lambda k: DATASETS[k].label,
         )
         view = st.radio("View", ["Chat", "Model Map"], horizontal=True)
+        if view == "Chat" and st.button("🆕 New session", use_container_width=True):
+            reset_session(st.session_state)
+            st.rerun()
 
     # Switching datasets invalidates the prior chat (different columns/shape).
     if st.session_state.get("dataset") != dataset_key:
