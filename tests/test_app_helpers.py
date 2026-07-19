@@ -33,6 +33,25 @@ class TestAppHelpers(unittest.TestCase):
         self.assertEqual(df.index.name, "iso_week")
         self.assertEqual(set(df.columns), {"Houston", "Dallas"})
 
+    def test_bucket_long_tail_folds_remainder_into_other(self):
+        cols = ["product", "sales"]
+        rows = [(f"p{i}", (20 - i)) for i in range(20)]  # 20 categories, descending
+        out_cols, out_rows = plots.bucket_long_tail(cols, rows, "product", "sales", top_n=5)
+        self.assertEqual(out_cols, cols)
+        cats = [r[0] for r in out_rows]
+        self.assertEqual(len(out_rows), 6)                 # 5 kept + Other
+        self.assertEqual(cats[:5], ["p0", "p1", "p2", "p3", "p4"])
+        self.assertEqual(cats[-1], "Other")
+        # Other = sum of the folded 15 categories' metric
+        folded = sum(20 - i for i in range(5, 20))
+        self.assertEqual(out_rows[-1][1], folded)
+
+    def test_bucket_long_tail_noop_when_within_cap(self):
+        cols = ["product", "sales"]
+        rows = [("a", 3), ("b", 5), ("c", 1)]
+        out_cols, out_rows = plots.bucket_long_tail(cols, rows, "product", "sales", top_n=12)
+        self.assertEqual(out_rows, rows)                   # unchanged, no Other
+
     def test_registered_theme_config_is_applied(self):
         # the central theme merges into every chart's spec (branding in one place)
         df = app.to_frame(["m", "v"], [("A", 3), ("B", 5)])

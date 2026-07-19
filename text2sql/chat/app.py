@@ -39,8 +39,8 @@ from text2sql.chat.charts import choose_chart
 from text2sql.chat.story import choose_story
 from text2sql.chat.model_map import model_to_dot, table_fields
 from text2sql.chat.plots import (
-    _display_frame, _fmt_number, _md_safe, _percent_measure, chart_frame,
-    comparison_grouped_bar, comparison_long, d3_format, grouped_bar,
+    _display_frame, _fmt_number, _md_safe, _percent_measure, bucket_long_tail,
+    chart_frame, comparison_grouped_bar, comparison_long, d3_format, grouped_bar,
     horizontal_bar, line_chart, line_panel, stacked_bar, to_frame,
     vertical_grouped_bar,
 )
@@ -192,6 +192,8 @@ def _render_assistant(st, payload, units=None, additive=None, types=None):
                         units=units, additive=additive, types=types)
     payload["chart_kind"] = spec.kind  # captured for the trace store
     story = choose_story(result.ir, spec, result.columns, result.rows, units, types)
+    if not result.rows:
+        st.info("No matching data for this question.")
     if hasattr(result.ir, "period_field") and spec.kind in ("line", "bar"):
         # A period comparison: melt the wide pivot and render a trend line (week
         # over week) or a grouped bar (periods side by side) — never stacked.
@@ -266,14 +268,20 @@ def _render_assistant(st, payload, units=None, additive=None, types=None):
         # (e.g. units and dollars) they render as small multiples — never mixed
         # on one axis. A shared product order (by the first measure) keeps rows
         # aligned so a product is easy to scan measure-to-measure.
-        df = to_frame(result.columns, result.rows)
+        # High-cardinality categoricals get capped: keep the top-N by the first
+        # measure and fold the rest into a muted "Other" bucket (sorted last).
+        cols, rows = bucket_long_tail(result.columns, result.rows, spec.x, spec.y[0])
+        df = to_frame(cols, rows)
+        muted = "Other" if any(r[cols.index(spec.x)] == "Other" for r in rows) else None
         order = df.sort_values(spec.y[0], ascending=False)[spec.x].tolist()
+        if muted:  # keep "Other" at the bottom regardless of its value
+            order = [c for c in order if c != "Other"] + ["Other"]
         for metric in spec.y:
             if len(spec.y) > 1:
                 st.caption(metric.replace("_", " "))
             st.altair_chart(
                 horizontal_bar(df, spec.x, metric, sort=order,
-                               fmt=d3_format(units.get(metric)), story=story),
+                               fmt=d3_format(units.get(metric)), story=story, mute=muted),
                 use_container_width=True,
             )
     elif spec.kind == "bar" and spec.orientation == "stacked":

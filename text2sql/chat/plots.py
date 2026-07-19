@@ -178,6 +178,25 @@ def comparison_long(comparison, columns: list[str], rows: list) -> pd.DataFrame:
     return long[[split, "period", "value"]]
 
 
+def bucket_long_tail(columns: list[str], rows: list, category: str, metric: str,
+                     top_n: int = 12):
+    """Cap a categorical result: keep the top-N categories by `metric` (descending)
+    and fold the remainder into a single "Other" row (summed). Returns
+    (columns, rows) unchanged when there are <= top_n categories. Pure/testable —
+    keeps high-cardinality bar charts readable (best-practice: top-N + Other)."""
+    ci, mi = columns.index(category), columns.index(metric)
+    if len({r[ci] for r in rows}) <= top_n:
+        return columns, rows
+    ranked = sorted(rows, key=lambda r: (r[mi] is not None, r[mi]), reverse=True)
+    keep = ranked[:top_n]
+    rest = ranked[top_n:]
+    other_total = sum((r[mi] or 0) for r in rest)
+    # build the "Other" row: metric summed, category = "Other", other cols blank
+    other = ["Other" if c == category else (other_total if c == metric else None)
+             for c in columns]
+    return columns, [list(r) for r in keep] + [other]
+
+
 def _display_frame(result, types: dict | None = None) -> pd.DataFrame:
     """The result table for display. Month dimension columns render friendly
     (`"2026-04"` -> `"Apr 2026"`, a bare `4` -> `"Apr"`); for a period comparison,
@@ -251,7 +270,7 @@ def _ann_layers(story, x, value, xsort):
 
 
 def horizontal_bar(df: pd.DataFrame, category: str, metric: str, sort="-x", fmt=",",
-                   story=None):
+                   story=None, mute=None):
     """An Altair horizontal bar in the dataviz palette: single blue series,
     4px rounded data-ends, per-bar value labels (which replace the x-axis) and
     full-precision tooltip, all formatted with `fmt` (a d3 format string, e.g.
@@ -271,11 +290,18 @@ def horizontal_bar(df: pd.DataFrame, category: str, metric: str, sort="-x", fmt=
     # direct labels before gridlines).
     x = alt.X(f"{metric}:Q", title=None, axis=None)
     base = alt.Chart(df)
-    # Emphasis: colour the story's focus (the leader) and grey the rest.
-    if story is not None and getattr(story, "emphasis", None) is not None:
+    # Emphasis: colour the story's focus (the leader) and grey the rest; or grey a
+    # single muted category (the long-tail "Other" bucket) while the rest stay blue.
+    focus = story.emphasis if (story is not None and getattr(story, "emphasis", None)
+                               is not None) else None
+    if focus is not None:
         import json
-        color = alt.condition(f"datum[{json.dumps(category)}] == {json.dumps(story.emphasis)}",
+        color = alt.condition(f"datum[{json.dumps(category)}] == {json.dumps(focus)}",
                               alt.value(SERIES_1), alt.value(MUTED_FILL))
+    elif mute is not None:
+        import json
+        color = alt.condition(f"datum[{json.dumps(category)}] == {json.dumps(mute)}",
+                              alt.value(MUTED_FILL), alt.value(SERIES_1))
     else:
         color = alt.value(SERIES_1)
     bars = base.mark_bar(cornerRadiusEnd=4).encode(
