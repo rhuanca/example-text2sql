@@ -384,9 +384,11 @@ def _render_model_map(st, model):
     """The Model Map view: a color-coded star-schema diagram plus a per-table
     inspector. Reads only the semantic model — no database, no LLM."""
     st.markdown(
-        "This is the whole vocabulary the assistant is allowed to use. It can "
-        "**only** pick metrics, dimensions, and filters from these tables — it "
-        "never writes free-form SQL, so it can't invent a column or a join."
+        "This is the whole vocabulary the assistant is allowed to use. It writes "
+        "SQL over a single *virtual* table whose columns are these metrics and "
+        "dimensions, and every query is **validated against the model** — so it "
+        "can only reference fields that exist here, never a physical table or a "
+        "join it invents. The compiler resolves the real joins."
     )
     st.graphviz_chart(model_to_dot(model), use_container_width=True)
     st.caption("🟨 fact tables (carry metrics)   🟦 dimension tables   ·   arrows show join keys")
