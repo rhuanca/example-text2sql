@@ -81,23 +81,23 @@ def _trend_story(spec, columns, rows, units, types) -> "StorySpec | None":
     fmt = lambda v: _fmt_number(v, unit)  # noqa: E731
     first, last, avg = ys[0], ys[-1], sum(ys) / len(ys)
     x0, x1 = _xlabel(xs[0], spec.x, types), _xlabel(xs[-1], spec.x, types)
-    st = StorySpec()
+    story = StorySpec()
     if first:
         pct = (last - first) / abs(first) * 100
-        st.title = f"{_pretty(spec.y[0]).title()} {'grew' if pct >= 0 else 'fell'} {abs(pct):.0f}% ({x0} → {x1})"
+        story.title = f"{_pretty(spec.y[0]).title()} {'grew' if pct >= 0 else 'fell'} {abs(pct):.0f}% ({x0} → {x1})"
     else:
-        st.title = f"{_pretty(spec.y[0]).title()} over time"
-    st.subtitle = f"{fmt(first)} → {fmt(last)}  ·  avg {fmt(avg)}"
-    st.references.append(Reference(avg, f"avg {fmt(avg)}", "avg"))
+        story.title = f"{_pretty(spec.y[0]).title()} over time"
+    story.subtitle = f"{fmt(first)} → {fmt(last)}  ·  avg {fmt(avg)}"
+    story.references.append(Reference(avg, f"avg {fmt(avg)}", "avg"))
     if any(v < 0 for v in ys):  # a signed metric (net income, % change) -> anchor at 0
-        st.references.append(Reference(0, "", "zero"))
-    st.annotations.append(Annotation(x1, last, fmt(last), "latest"))
+        story.references.append(Reference(0, "", "zero"))
+    story.annotations.append(Annotation(x1, last, fmt(last), "latest"))
     pk = max(range(len(ys)), key=lambda i: ys[i])
     if pk != len(ys) - 1 and max(ys) > min(ys):  # a distinct peak worth calling out
-        st.annotations.append(
+        story.annotations.append(
             Annotation(_xlabel(xs[pk], spec.x, types), ys[pk],
                        f"peak · {_xlabel(xs[pk], spec.x, types)}", "peak"))
-    return st
+    return story
 
 
 def _topn_story(spec, columns, rows, units) -> "StorySpec | None":
@@ -110,11 +110,11 @@ def _topn_story(spec, columns, rows, units) -> "StorySpec | None":
     leader = max(vals, key=lambda t: t[1])
     total = sum(v for _, v in vals) or 1
     fmt = lambda v: _fmt_number(v, units.get(spec.y[0]))  # noqa: E731
-    st = StorySpec()
-    st.title = f"{leader[0]} leads — {fmt(leader[1])}"
-    st.subtitle = f"{leader[1] / total * 100:.0f}% of the top {len(vals)}"
-    st.emphasis = leader[0]
-    return st
+    story = StorySpec()
+    story.title = f"{leader[0]} leads — {fmt(leader[1])}"
+    story.subtitle = f"{leader[1] / total * 100:.0f}% of the top {len(vals)}"
+    story.emphasis = leader[0]
+    return story
 
 
 def _comparison_story(ir, columns, rows, units) -> "StorySpec | None":
@@ -129,8 +129,8 @@ def _comparison_story(ir, columns, rows, units) -> "StorySpec | None":
         return None
     fmt = lambda v: _fmt_number(v, units.get(ir.metric))  # noqa: E731
     delta = (sums[1] - sums[0]) / abs(sums[0]) * 100
-    st = StorySpec()
-    st.title = f"{periods[1]} vs {periods[0]}: {'+' if delta >= 0 else ''}{delta:.0f}%"
+    story = StorySpec()
+    story.title = f"{periods[1]} vs {periods[0]}: {'+' if delta >= 0 else ''}{delta:.0f}%"
     # subtitle in the same period order as the title, each labelled so it can't be misread
-    st.subtitle = f"{periods[1]} {fmt(sums[1])}  vs  {periods[0]} {fmt(sums[0])}"
-    return st
+    story.subtitle = f"{periods[1]} {fmt(sums[1])}  vs  {periods[0]} {fmt(sums[0])}"
+    return story

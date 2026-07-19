@@ -39,7 +39,7 @@ from text2sql.chat.charts import choose_chart, compatible_charts
 from text2sql.chat.story import choose_story
 from text2sql.chat.model_map import model_to_dot, table_fields
 from text2sql.chat.plots import (
-    _display_frame, _fmt_number, _md_safe, _percent_measure, area_chart,
+    _display_frame, _fmt_number, _md_safe, _percent_measure, _pretty, area_chart,
     bucket_long_tail, chart_frame, comparison_grouped_bar, comparison_long, d3_format,
     grouped_bar, heatmap, horizontal_bar, line_chart, line_panel, scatter_chart,
     stacked_bar, to_frame, vertical_grouped_bar,
@@ -198,6 +198,7 @@ def render_chart(st, kind, spec, result, units, additive, types, story):
                             ir.periods, fmt=fmt, story=story), use_container_width=True)
         return
 
+    df = to_frame(result.columns, result.rows)
     fmt = d3_format(units.get(spec.y[0])) if spec.y else ","
     if kind == "number" and result.rows:
         cols = st.columns(len(spec.y))
@@ -205,14 +206,13 @@ def render_chart(st, kind, spec, result, units, additive, types, story):
             idx = result.columns.index(metric)
             c.metric(metric, _fmt_number(result.rows[0][idx], units.get(metric)))
     elif kind == "line":
-        df = to_frame(result.columns, result.rows)
         metric_units = {units.get(m) for m in spec.y}
         same_scale = len(metric_units) == 1 and None not in metric_units
         if len(spec.y) > 1 and not spec.series and not same_scale:
             # measures of different (or unknown) scale get one panel each so neither
             # is squashed onto the other's axis.
             for metric in spec.y:
-                st.caption(metric.replace("_", " "))
+                st.caption(_pretty(metric))
                 st.altair_chart(line_panel(df, spec.x, metric,
                                 _percent_measure(metric, units), x_type=types.get(spec.x)),
                                 use_container_width=True)
@@ -231,7 +231,6 @@ def render_chart(st, kind, spec, result, units, additive, types, story):
                             x_type=types.get(spec.x), story=story),
                             use_container_width=True)
     elif kind == "area":
-        df = to_frame(result.columns, result.rows)
         if len(spec.y) > 1 and not spec.series:
             long_df = df.melt(id_vars=[spec.x], value_vars=spec.y,
                               var_name="measure", value_name="value")
@@ -242,34 +241,32 @@ def render_chart(st, kind, spec, result, units, additive, types, story):
                             x_type=types.get(spec.x), story=story),
                             use_container_width=True)
     elif kind == "scatter" and len(spec.y) >= 2:
-        st.altair_chart(scatter_chart(to_frame(result.columns, result.rows),
-                        spec.y[0], spec.y[1], label=spec.x,
+        st.altair_chart(scatter_chart(df, spec.y[0], spec.y[1], label=spec.x,
                         fmt_x=fmt, fmt_y=d3_format(units.get(spec.y[1]))),
                         use_container_width=True)
     elif kind == "heatmap":
-        st.altair_chart(heatmap(to_frame(result.columns, result.rows), spec.x,
-                        spec.series, spec.y[0], fmt=fmt), use_container_width=True)
+        st.altair_chart(heatmap(df, spec.x, spec.series, spec.y[0], fmt=fmt),
+                        use_container_width=True)
     elif kind == "bar" and spec.orientation == "grouped":
-        st.altair_chart(grouped_bar(to_frame(result.columns, result.rows), spec.x,
-                        spec.y, fmt=fmt), use_container_width=True)
+        st.altair_chart(grouped_bar(df, spec.x, spec.y, fmt=fmt),
+                        use_container_width=True)
     elif kind == "bar" and spec.orientation == "horizontal":
         # top-N + muted "Other" bucket, sorted last, shared order across measures.
         cols, rows = bucket_long_tail(result.columns, result.rows, spec.x, spec.y[0])
-        df = to_frame(cols, rows)
+        bucketed = to_frame(cols, rows)
         muted = "Other" if any(r[cols.index(spec.x)] == "Other" for r in rows) else None
-        order = df.sort_values(spec.y[0], ascending=False)[spec.x].tolist()
+        order = bucketed.sort_values(spec.y[0], ascending=False)[spec.x].tolist()
         if muted:
             order = [c for c in order if c != "Other"] + ["Other"]
         for metric in spec.y:
             if len(spec.y) > 1:
-                st.caption(metric.replace("_", " "))
-            st.altair_chart(horizontal_bar(df, spec.x, metric, sort=order,
+                st.caption(_pretty(metric))
+            st.altair_chart(horizontal_bar(bucketed, spec.x, metric, sort=order,
                             fmt=d3_format(units.get(metric)), story=story, mute=muted),
                             use_container_width=True)
     elif kind == "bar" and spec.orientation == "stacked":
-        st.altair_chart(stacked_bar(to_frame(result.columns, result.rows), spec.x,
-                        spec.series, spec.y[0], fmt=fmt, x_type=types.get(spec.x)),
-                        use_container_width=True)
+        st.altair_chart(stacked_bar(df, spec.x, spec.series, spec.y[0], fmt=fmt,
+                        x_type=types.get(spec.x)), use_container_width=True)
     elif kind == "bar":
         st.bar_chart(chart_frame(spec, result.columns, result.rows))
     # kind == "table": no-op — the caller always renders the table below.

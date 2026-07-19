@@ -26,9 +26,9 @@ class ChartSpec:
     x: str | None = None
     y: list[str] = field(default_factory=list)
     series: str | None = None
-    # "vertical" (default) or "horizontal". A single-metric categorical bar is
-    # drawn horizontally and sorted by the metric descending, so top-N reads
-    # top-to-bottom highest-first (labels stay level and legible).
+    # "vertical" (default) | "horizontal" | "grouped" | "stacked" | "clustered".
+    # A single-metric categorical bar is drawn horizontally and sorted by the metric
+    # descending, so top-N reads top-to-bottom highest-first (labels stay legible).
     orientation: str = "vertical"
 
 

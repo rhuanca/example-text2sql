@@ -73,14 +73,17 @@ def _register_theme():
             }
         )
 
-    return _theme
-
 
 _register_theme()
 
 
 def d3_format(unit: str | None) -> str:
     return _UNIT_D3.get(unit, ",")
+
+
+def _pretty(name: str) -> str:
+    """A column/field name as a readable axis/tooltip title (`net_sales` -> `net sales`)."""
+    return name.replace("_", " ")
 
 
 def _md_safe(text: str) -> str:
@@ -99,7 +102,7 @@ def _percent_measure(name: str, units: dict) -> bool:
 
 
 _MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-          "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
 
 def month_label(value):
@@ -292,14 +295,13 @@ def horizontal_bar(df: pd.DataFrame, category: str, metric: str, sort="-x", fmt=
     base = alt.Chart(df)
     # Emphasis: colour the story's focus (the leader) and grey the rest; or grey a
     # single muted category (the long-tail "Other" bucket) while the rest stay blue.
+    import json
     focus = story.emphasis if (story is not None and getattr(story, "emphasis", None)
                                is not None) else None
     if focus is not None:
-        import json
         color = alt.condition(f"datum[{json.dumps(category)}] == {json.dumps(focus)}",
                               alt.value(SERIES_1), alt.value(MUTED_FILL))
     elif mute is not None:
-        import json
         color = alt.condition(f"datum[{json.dumps(category)}] == {json.dumps(mute)}",
                               alt.value(MUTED_FILL), alt.value(SERIES_1))
     else:
@@ -309,8 +311,8 @@ def horizontal_bar(df: pd.DataFrame, category: str, metric: str, sort="-x", fmt=
         y=y,
         color=color,
         tooltip=[
-            alt.Tooltip(f"{category}:N", title=category.replace("_", " ")),
-            alt.Tooltip(f"{metric}:Q", title=metric.replace("_", " "), format=fmt),
+            alt.Tooltip(f"{category}:N", title=_pretty(category)),
+            alt.Tooltip(f"{metric}:Q", title=_pretty(metric), format=fmt),
         ],
     )
     labels = base.mark_text(align="left", dx=4, color=INK_SECONDARY).encode(
@@ -348,13 +350,13 @@ def grouped_bar(df: pd.DataFrame, category: str, metrics: list[str], fmt=","):
                             scale=alt.Scale(domain=metrics, range=[SERIES_1, SERIES_2]),
                             legend=alt.Legend(orient="top")),
             tooltip=[
-                alt.Tooltip(f"{category}:N", title=category.replace("_", " ")),
+                alt.Tooltip(f"{category}:N", title=_pretty(category)),
                 alt.Tooltip("measure:N", title="measure"),
                 alt.Tooltip("value:Q", format=fmt),
             ],
         )
         .properties(height=alt.Step(16))  # per sub-bar; band fits both measures
-            )
+    )
 
 
 def stacked_bar(df: pd.DataFrame, x: str, series: str, metric: str, fmt=",",
@@ -369,7 +371,7 @@ def stacked_bar(df: pd.DataFrame, x: str, series: str, metric: str, fmt=",",
         alt.Chart(df)
         .mark_bar()
         .encode(
-            x=alt.X(f"{x}:O", title=x.replace("_", " "), sort=xsort,
+            x=alt.X(f"{x}:O", title=_pretty(x), sort=xsort,
                     axis=alt.Axis(labelColor=INK_SECONDARY)),
             y=alt.Y(f"{metric}:Q", title=None, stack="zero",
                     axis=alt.Axis(format=fmt, labelColor=INK_MUTED, grid=True)),
@@ -378,7 +380,7 @@ def stacked_bar(df: pd.DataFrame, x: str, series: str, metric: str, fmt=",",
                             legend=alt.Legend(orient="top")),
             tooltip=[
                 alt.Tooltip(f"{x}:O"),
-                alt.Tooltip(f"{series}:N", title=series.replace("_", " ")),
+                alt.Tooltip(f"{series}:N", title=_pretty(series)),
                 alt.Tooltip(f"{metric}:Q", format=fmt),
             ],
         )
@@ -411,13 +413,14 @@ def comparison_grouped_bar(long: pd.DataFrame, category: str, period_field: str,
                             scale=alt.Scale(domain=domain, range=PALETTE[:len(periods)]),
                             legend=alt.Legend(orient="top")),
             tooltip=[
-                alt.Tooltip(f"{category}:N", title=category.replace("_", " ")),
+                alt.Tooltip(f"{category}:N", title=_pretty(category)),
                 alt.Tooltip("period:N", title=period_field),
                 alt.Tooltip("value:Q", format=fmt),
             ],
         )
-        .properties(height=alt.Step(16))
-        , story)
+        .properties(height=alt.Step(16)),
+        story,
+    )
 
 
 def vertical_grouped_bar(long: pd.DataFrame, category: str, period_field: str,
@@ -437,7 +440,7 @@ def vertical_grouped_bar(long: pd.DataFrame, category: str, period_field: str,
         alt.Chart(data)
         .mark_bar(cornerRadiusEnd=4)
         .encode(
-            x=alt.X(f"{category}:O", title=category.replace("_", " "), sort=xsort,
+            x=alt.X(f"{category}:O", title=_pretty(category), sort=xsort,
                     axis=alt.Axis(labelColor=INK_SECONDARY, domainColor=AXIS_LINE,
                                   ticks=False)),
             xOffset="period:N",  # side-by-side per period, never stacked
@@ -447,7 +450,7 @@ def vertical_grouped_bar(long: pd.DataFrame, category: str, period_field: str,
                             scale=alt.Scale(domain=domain, range=PALETTE[:len(periods)]),
                             legend=alt.Legend(orient="top")),
             tooltip=[
-                alt.Tooltip(f"{category}:N", title=category.replace("_", " ")),
+                alt.Tooltip(f"{category}:N", title=_pretty(category)),
                 alt.Tooltip("period:N", title=period_field),
                 alt.Tooltip("value:Q", format=fmt),
             ],
@@ -467,11 +470,11 @@ def line_chart(df: pd.DataFrame, x: str, value: str, color: str | None = None, f
     df, xsort = _month_axis(df, x, x_type)
     tooltip = [alt.Tooltip(f"{x}:O")]
     if color:
-        tooltip.append(alt.Tooltip(f"{color}:N", title=color.replace("_", " ")))
+        tooltip.append(alt.Tooltip(f"{color}:N", title=_pretty(color)))
     tooltip.append(alt.Tooltip(f"{value}:Q", format=fmt))
 
     enc = {
-        "x": alt.X(f"{x}:O", title=x.replace("_", " "), sort=xsort,
+        "x": alt.X(f"{x}:O", title=_pretty(x), sort=xsort,
                    axis=alt.Axis(labelColor=INK_SECONDARY)),
         "y": alt.Y(f"{value}:Q", title=None, scale=alt.Scale(zero=False),
                    axis=alt.Axis(format=fmt, labelColor=INK_MUTED)),
@@ -500,8 +503,8 @@ def line_panel(df: pd.DataFrame, x: str, metric: str, percent: bool = False,
     df, xsort = _month_axis(df, x, x_type)
     y_axis = alt.Axis(labelExpr="format(datum.value, '.1f') + '%'") if percent else alt.Axis()
     line = alt.Chart(df).mark_line(point=True, color=SERIES_1).encode(
-        x=alt.X(f"{x}:O", title=x.replace("_", " "), sort=xsort),
-        y=alt.Y(f"{metric}:Q", title=metric.replace("_", " "),
+        x=alt.X(f"{x}:O", title=_pretty(x), sort=xsort),
+        y=alt.Y(f"{metric}:Q", title=_pretty(metric),
                 scale=alt.Scale(zero=percent), axis=y_axis),
         tooltip=[alt.Tooltip(f"{x}:O"), alt.Tooltip(f"{metric}:Q")],
     )
@@ -523,10 +526,10 @@ def area_chart(df: pd.DataFrame, x: str, value: str, color: str | None = None, f
     df, xsort = _month_axis(df, x, x_type)
     tooltip = [alt.Tooltip(f"{x}:O")]
     if color:
-        tooltip.append(alt.Tooltip(f"{color}:N", title=color.replace("_", " ")))
+        tooltip.append(alt.Tooltip(f"{color}:N", title=_pretty(color)))
     tooltip.append(alt.Tooltip(f"{value}:Q", format=fmt))
     enc = {
-        "x": alt.X(f"{x}:O", title=x.replace("_", " "), sort=xsort,
+        "x": alt.X(f"{x}:O", title=_pretty(x), sort=xsort,
                    axis=alt.Axis(labelColor=INK_SECONDARY)),
         "y": alt.Y(f"{value}:Q", title=None, stack="zero" if color else None,
                    axis=alt.Axis(format=fmt, labelColor=INK_MUTED)),
@@ -554,13 +557,13 @@ def scatter_chart(df: pd.DataFrame, x_metric: str, y_metric: str, label: str | N
 
     tooltip = []
     if label:
-        tooltip.append(alt.Tooltip(f"{label}:N", title=label.replace("_", " ")))
-    tooltip += [alt.Tooltip(f"{x_metric}:Q", title=x_metric.replace("_", " "), format=fmt_x),
-                alt.Tooltip(f"{y_metric}:Q", title=y_metric.replace("_", " "), format=fmt_y)]
+        tooltip.append(alt.Tooltip(f"{label}:N", title=_pretty(label)))
+    tooltip += [alt.Tooltip(f"{x_metric}:Q", title=_pretty(x_metric), format=fmt_x),
+                alt.Tooltip(f"{y_metric}:Q", title=_pretty(y_metric), format=fmt_y)]
     return alt.Chart(df).mark_circle(size=110, color=SERIES_1, opacity=0.75).encode(
-        x=alt.X(f"{x_metric}:Q", title=x_metric.replace("_", " "),
+        x=alt.X(f"{x_metric}:Q", title=_pretty(x_metric),
                 scale=alt.Scale(zero=False), axis=alt.Axis(format=fmt_x)),
-        y=alt.Y(f"{y_metric}:Q", title=y_metric.replace("_", " "),
+        y=alt.Y(f"{y_metric}:Q", title=_pretty(y_metric),
                 scale=alt.Scale(zero=False), axis=alt.Axis(format=fmt_y)),
         tooltip=tooltip,
     ).properties(height=340)
@@ -574,17 +577,17 @@ def heatmap(df: pd.DataFrame, x: str, y: str, metric: str, fmt=","):
     import altair as alt
 
     base = alt.Chart(df).encode(
-        x=alt.X(f"{x}:N", title=x.replace("_", " ")),
-        y=alt.Y(f"{y}:N", title=y.replace("_", " ")),
+        x=alt.X(f"{x}:N", title=_pretty(x)),
+        y=alt.Y(f"{y}:N", title=_pretty(y)),
     )
     rects = base.mark_rect().encode(
-        color=alt.Color(f"{metric}:Q", title=metric.replace("_", " "),
+        color=alt.Color(f"{metric}:Q", title=_pretty(metric),
                         scale=alt.Scale(range=["#f2f6fc", SERIES_1]),
                         legend=alt.Legend(orient="right", format=fmt)),
         tooltip=[
-            alt.Tooltip(f"{x}:N", title=x.replace("_", " ")),
-            alt.Tooltip(f"{y}:N", title=y.replace("_", " ")),
-            alt.Tooltip(f"{metric}:Q", title=metric.replace("_", " "), format=fmt),
+            alt.Tooltip(f"{x}:N", title=_pretty(x)),
+            alt.Tooltip(f"{y}:N", title=_pretty(y)),
+            alt.Tooltip(f"{metric}:Q", title=_pretty(metric), format=fmt),
         ],
     )
     n_cells = df[x].nunique() * df[y].nunique()

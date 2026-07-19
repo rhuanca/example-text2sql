@@ -7,6 +7,14 @@ from text2sql.chat.charts import ChartSpec
 from text2sql.engine.compare import Comparison
 
 
+def _marks(spec):
+    """The set of mark types in a Vega-Lite spec dict, whether it's a single mark
+    or a layered chart."""
+    layers = spec["layer"] if "layer" in spec else [spec]
+    return {(lyr["mark"]["type"] if isinstance(lyr["mark"], dict) else lyr["mark"])
+            for lyr in layers}
+
+
 class TestAppHelpers(unittest.TestCase):
     def test_import_does_not_launch(self):
         # importing the module must not require a running Streamlit server
@@ -56,11 +64,7 @@ class TestAppHelpers(unittest.TestCase):
         df = app.to_frame(["month", "v"], [("Jan", 3.0), ("Feb", 5.0), ("Mar", 4.0)])
         spec = plots.area_chart(df, "month", "v").to_dict()
         # single-series area is a mark_area (possibly layered with story overlays)
-        marks = ({(spec["mark"]["type"] if isinstance(spec["mark"], dict) else spec["mark"])}
-                 if "mark" in spec else
-                 {(l["mark"]["type"] if isinstance(l["mark"], dict) else l["mark"])
-                  for l in spec["layer"]})
-        self.assertIn("area", marks)
+        self.assertIn("area", _marks(spec))
 
     def test_scatter_chart_two_metrics(self):
         df = app.to_frame(["store", "budget", "actual"], [("A", 10.0, 12.0), ("B", 20.0, 18.0)])
@@ -75,9 +79,7 @@ class TestAppHelpers(unittest.TestCase):
                           [("N", "Cap", 3.0), ("S", "Cap", 5.0),
                            ("N", "Latte", 2.0), ("S", "Latte", 9.0)])
         spec = plots.heatmap(df, "market", "product", "sales").to_dict()
-        marks = {(l["mark"]["type"] if isinstance(l["mark"], dict) else l["mark"])
-                 for l in spec["layer"]}
-        self.assertIn("rect", marks)
+        self.assertIn("rect", _marks(spec))
         # sequential single-hue scale (two-stop range: light -> series blue), not rainbow
         rng = spec["layer"][0]["encoding"]["color"]["scale"]["range"]
         self.assertEqual(rng[-1], plots.SERIES_1)
@@ -100,9 +102,7 @@ class TestAppHelpers(unittest.TestCase):
         chart = app.horizontal_bar(df, "product_name", "units_sold")
         spec = chart.to_dict()  # Vega-Lite spec
         # a bar layer plus a text (value-label) layer
-        marks = {layer["mark"] if isinstance(layer["mark"], str)
-                 else layer["mark"]["type"] for layer in spec["layer"]}
-        self.assertEqual(marks, {"bar", "text"})
+        self.assertEqual(_marks(spec), {"bar", "text"})
         # the category axis is sorted by the metric, descending
         y_enc = spec["layer"][0]["encoding"]["y"]
         self.assertEqual(y_enc["field"], "product_name")
@@ -360,24 +360,17 @@ class TestAppHelpers(unittest.TestCase):
                                 types={"month": "month"})
         self.assertEqual(spec.kind, "line")  # the recommended default
 
-        def marks(chart):
-            d = chart.to_dict()
-            return ({d["mark"]["type"] if isinstance(d["mark"], dict) else d["mark"]}
-                    if "mark" in d else
-                    {(x["mark"]["type"] if isinstance(x["mark"], dict) else x["mark"])
-                     for x in d["layer"]})
-
         # native kind -> a line
         st = _CaptureSt()
         app.render_chart(st, "line", spec, result, {"total_net_sales": "usd"}, {},
                          {"month": "month"}, None)
-        self.assertIn("line", marks(st.charts[0]))
+        self.assertIn("line", _marks(st.charts[0].to_dict()))
 
         # override to area -> an area mark
         st = _CaptureSt()
         app.render_chart(st, "area", spec, result, {"total_net_sales": "usd"}, {},
                          {"month": "month"}, None)
-        self.assertIn("area", marks(st.charts[0]))
+        self.assertIn("area", _marks(st.charts[0].to_dict()))
 
         # override to bar -> the simple vertical bar fallback (st.bar_chart)
         st = _CaptureSt()
@@ -460,10 +453,8 @@ class TestAppHelpers(unittest.TestCase):
                          Annotation("Jun 2026", 4600.0, "peak · Jun 2026", "peak")])
         spec = app.line_chart(df, "month", "total_net_sales", story=story).to_dict()
         self.assertEqual(spec["title"]["text"], "Net sales fell 27%")
-        marks = {(m["type"] if isinstance(m, dict) else m)
-                 for m in (layer["mark"] for layer in spec["layer"])}
         # average rule + the line + latest point + text callouts
-        self.assertTrue({"rule", "line", "point", "text"} <= marks, marks)
+        self.assertTrue({"rule", "line", "point", "text"} <= _marks(spec), _marks(spec))
 
     def test_safe_summarize_falls_back_on_error(self):
         class Boom:
