@@ -134,3 +134,33 @@ def choose_chart(ir, columns: list[str], rows: list, units: dict | None = None,
 
     # Too complex to chart automatically -> show the table.
     return ChartSpec("table", y=metrics)
+
+
+def compatible_charts(ir, columns: list[str], rows: list, units: dict | None = None,
+                      additive: dict | None = None, types: dict | None = None) -> list[str]:
+    """The chart kinds that make sense for this result shape, **recommended-first**
+    (element 0 is `choose_chart`'s pick). Drives the UI chart-type switcher: the app
+    auto-picks options[0] and lets the user override to another kind in the list.
+    Pure — mirrors `choose_chart`."""
+    spec = choose_chart(ir, columns, rows, units=units, additive=additive, types=types)
+    k = spec.kind
+    if k == "number":
+        return ["number", "table"]
+    if k == "table":
+        return ["table"]
+    if hasattr(ir, "period_field"):   # a period comparison renders as its line/bar
+        return [k, "table"]
+    if k == "line":
+        opts = ["line", "area"]
+        if not spec.series and len(spec.y) == 1:  # a single trend can also be a bar
+            opts.append("bar")
+        return opts + ["table"]
+    if k == "heatmap":
+        return ["heatmap", "table"]
+    if k == "bar":
+        if spec.orientation == "stacked":         # split over time -> line/area too
+            return ["bar", "line", "area", "table"]
+        if len(spec.y) == 2:                       # two measures -> correlation
+            return ["bar", "scatter", "table"]
+        return ["bar", "table"]
+    return [k, "table"]

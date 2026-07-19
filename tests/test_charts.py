@@ -1,6 +1,6 @@
 import unittest
 
-from text2sql.chat.charts import choose_chart, is_time_like
+from text2sql.chat.charts import choose_chart, compatible_charts, is_time_like
 from text2sql.engine.ir import SemanticQuery
 
 
@@ -181,6 +181,30 @@ class TestChooseChart(unittest.TestCase):
             ir(["total_net_sales"], ["market", "category_name"]), cols, rows
         )
         self.assertEqual(spec.kind, "heatmap")
+
+    def test_compatible_charts_are_recommended_first(self):
+        # single time series: line recommended, area/bar/table as alternatives
+        cols = ["month", "total_net_sales"]
+        rows = [("2026-01-01", 3.0), ("2026-02-01", 5.0), ("2026-03-01", 4.0)]
+        opts = compatible_charts(ir(["total_net_sales"], ["month"]), cols, rows,
+                                 types={"month": "month"})
+        self.assertEqual(opts[0], "line")            # element 0 == choose_chart's pick
+        self.assertEqual(opts, ["line", "area", "bar", "table"])
+
+    def test_compatible_charts_categorical_and_heatmap(self):
+        # single categorical measure -> bar + table
+        self.assertEqual(
+            compatible_charts(ir(["units_sold"], ["product_name"]),
+                              ["product_name", "units_sold"],
+                              [("Cap", 5), ("Latte", 3)]),
+            ["bar", "table"])
+        # heatmap shape -> heatmap + table
+        self.assertEqual(
+            compatible_charts(ir(["total_net_sales"], ["market", "product"]),
+                              ["market", "product", "total_net_sales"],
+                              [("N", "Cap", 3.0), ("S", "Latte", 9.0)],
+                              types={"market": "text", "product": "text"}),
+            ["heatmap", "table"])
 
     def test_no_metric_is_table(self):
         spec = choose_chart(ir([], ["market"]), ["market"], [("Houston",)])

@@ -35,14 +35,14 @@ from text2sql.engine.executor import SqliteExecutor
 from text2sql.engine.planner import AnthropicPlanner, PlannerError
 from text2sql.engine.rewriter import AnthropicRewriter
 from text2sql.semantic.model import load_model
-from text2sql.chat.charts import choose_chart
+from text2sql.chat.charts import choose_chart, compatible_charts
 from text2sql.chat.story import choose_story
 from text2sql.chat.model_map import model_to_dot, table_fields
 from text2sql.chat.plots import (
-    _display_frame, _fmt_number, _md_safe, _percent_measure, bucket_long_tail,
-    chart_frame, comparison_grouped_bar, comparison_long, d3_format, grouped_bar,
-    heatmap, horizontal_bar, line_chart, line_panel, stacked_bar, to_frame,
-    vertical_grouped_bar,
+    _display_frame, _fmt_number, _md_safe, _percent_measure, area_chart,
+    bucket_long_tail, chart_frame, comparison_grouped_bar, comparison_long, d3_format,
+    grouped_bar, heatmap, horizontal_bar, line_chart, line_panel, scatter_chart,
+    stacked_bar, to_frame, vertical_grouped_bar,
 )
 from text2sql.chat.summarizer import AnthropicSummarizer, MockSummarizer
 from text2sql.trace import usage
@@ -175,6 +175,106 @@ def _fallback_summary(rows) -> str:
 
 
 # ---- Streamlit rendering (only runs under `streamlit run`) -----------------
+def render_chart(st, kind, spec, result, units, additive, types, story):
+    """Draw ONE chart of the given `kind` from the result + spec. The switcher calls
+    this with the user's selected kind (defaulting to choose_chart's pick), so the
+    same result can be re-rendered as a different chart. `kind == "table"` is a no-op
+    (the app always shows the table below)."""
+    ir = result.ir
+    if hasattr(ir, "period_field") and kind in ("line", "bar"):
+        # A period comparison: melt the wide pivot and render a trend line (week over
+        # week) or grouped bars (periods side by side) — never stacked.
+        long = comparison_long(ir, result.columns, result.rows)
+        fmt = d3_format(units.get(ir.metric))
+        if kind == "line":
+            st.altair_chart(line_chart(long, "period", "value", color=ir.split_by,
+                                       fmt=fmt, story=story), use_container_width=True)
+        elif spec.orientation == "clustered":
+            st.altair_chart(vertical_grouped_bar(long, ir.split_by, ir.period_field,
+                            ir.periods, fmt=fmt, x_type=types.get(ir.split_by),
+                            story=story), use_container_width=True)
+        else:
+            st.altair_chart(comparison_grouped_bar(long, ir.split_by, ir.period_field,
+                            ir.periods, fmt=fmt, story=story), use_container_width=True)
+        return
+
+    fmt = d3_format(units.get(spec.y[0])) if spec.y else ","
+    if kind == "number" and result.rows:
+        cols = st.columns(len(spec.y))
+        for c, metric in zip(cols, spec.y):
+            idx = result.columns.index(metric)
+            c.metric(metric, _fmt_number(result.rows[0][idx], units.get(metric)))
+    elif kind == "line":
+        df = to_frame(result.columns, result.rows)
+        metric_units = {units.get(m) for m in spec.y}
+        same_scale = len(metric_units) == 1 and None not in metric_units
+        if len(spec.y) > 1 and not spec.series and not same_scale:
+            # measures of different (or unknown) scale get one panel each so neither
+            # is squashed onto the other's axis.
+            for metric in spec.y:
+                st.caption(metric.replace("_", " "))
+                st.altair_chart(line_panel(df, spec.x, metric,
+                                _percent_measure(metric, units), x_type=types.get(spec.x)),
+                                use_container_width=True)
+        elif spec.series:
+            st.altair_chart(line_chart(df, spec.x, spec.y[0], color=spec.series, fmt=fmt,
+                            x_type=types.get(spec.x), story=story),
+                            use_container_width=True)
+        elif len(spec.y) == 1:
+            st.altair_chart(line_chart(df, spec.x, spec.y[0], fmt=fmt,
+                            x_type=types.get(spec.x), story=story),
+                            use_container_width=True)
+        else:  # 2+ same-scale measures -> one line per measure
+            long_df = df.melt(id_vars=[spec.x], value_vars=spec.y,
+                              var_name="measure", value_name="value")
+            st.altair_chart(line_chart(long_df, spec.x, "value", color="measure", fmt=fmt,
+                            x_type=types.get(spec.x), story=story),
+                            use_container_width=True)
+    elif kind == "area":
+        df = to_frame(result.columns, result.rows)
+        if len(spec.y) > 1 and not spec.series:
+            long_df = df.melt(id_vars=[spec.x], value_vars=spec.y,
+                              var_name="measure", value_name="value")
+            st.altair_chart(area_chart(long_df, spec.x, "value", color="measure", fmt=fmt,
+                            x_type=types.get(spec.x)), use_container_width=True)
+        else:
+            st.altair_chart(area_chart(df, spec.x, spec.y[0], color=spec.series, fmt=fmt,
+                            x_type=types.get(spec.x), story=story),
+                            use_container_width=True)
+    elif kind == "scatter" and len(spec.y) >= 2:
+        st.altair_chart(scatter_chart(to_frame(result.columns, result.rows),
+                        spec.y[0], spec.y[1], label=spec.x,
+                        fmt_x=fmt, fmt_y=d3_format(units.get(spec.y[1]))),
+                        use_container_width=True)
+    elif kind == "heatmap":
+        st.altair_chart(heatmap(to_frame(result.columns, result.rows), spec.x,
+                        spec.series, spec.y[0], fmt=fmt), use_container_width=True)
+    elif kind == "bar" and spec.orientation == "grouped":
+        st.altair_chart(grouped_bar(to_frame(result.columns, result.rows), spec.x,
+                        spec.y, fmt=fmt), use_container_width=True)
+    elif kind == "bar" and spec.orientation == "horizontal":
+        # top-N + muted "Other" bucket, sorted last, shared order across measures.
+        cols, rows = bucket_long_tail(result.columns, result.rows, spec.x, spec.y[0])
+        df = to_frame(cols, rows)
+        muted = "Other" if any(r[cols.index(spec.x)] == "Other" for r in rows) else None
+        order = df.sort_values(spec.y[0], ascending=False)[spec.x].tolist()
+        if muted:
+            order = [c for c in order if c != "Other"] + ["Other"]
+        for metric in spec.y:
+            if len(spec.y) > 1:
+                st.caption(metric.replace("_", " "))
+            st.altair_chart(horizontal_bar(df, spec.x, metric, sort=order,
+                            fmt=d3_format(units.get(metric)), story=story, mute=muted),
+                            use_container_width=True)
+    elif kind == "bar" and spec.orientation == "stacked":
+        st.altair_chart(stacked_bar(to_frame(result.columns, result.rows), spec.x,
+                        spec.series, spec.y[0], fmt=fmt, x_type=types.get(spec.x)),
+                        use_container_width=True)
+    elif kind == "bar":
+        st.bar_chart(chart_frame(spec, result.columns, result.rows))
+    # kind == "table": no-op — the caller always renders the table below.
+
+
 def _render_assistant(st, payload, units=None, additive=None, types=None):
     units = units or {}
     additive = additive or {}
@@ -194,113 +294,22 @@ def _render_assistant(st, payload, units=None, additive=None, types=None):
     story = choose_story(result.ir, spec, result.columns, result.rows, units, types)
     if not result.rows:
         st.info("No matching data for this question.")
-    if hasattr(result.ir, "period_field") and spec.kind in ("line", "bar"):
-        # A period comparison: melt the wide pivot and render a trend line (week
-        # over week) or a grouped bar (periods side by side) — never stacked.
-        long = comparison_long(result.ir, result.columns, result.rows)
-        fmt = d3_format(units.get(result.ir.metric))
-        if spec.kind == "line":
-            st.altair_chart(
-                line_chart(long, "period", "value", color=result.ir.split_by, fmt=fmt,
-                           story=story),
-                use_container_width=True,
-            )
-        elif spec.orientation == "clustered":
-            # bucket is a time axis -> vertical clustered columns, chronological
-            st.altair_chart(
-                vertical_grouped_bar(long, result.ir.split_by, result.ir.period_field,
-                                     result.ir.periods, fmt=fmt,
-                                     x_type=types.get(result.ir.split_by), story=story),
-                use_container_width=True,
-            )
-        else:
-            st.altair_chart(
-                comparison_grouped_bar(long, result.ir.split_by, result.ir.period_field,
-                                       result.ir.periods, fmt=fmt, story=story),
-                use_container_width=True,
-            )
-    elif spec.kind == "number" and result.rows:
-        cols = st.columns(len(spec.y))
-        for c, metric in zip(cols, spec.y):
-            idx = result.columns.index(metric)
-            c.metric(metric, _fmt_number(result.rows[0][idx], units.get(metric)))
-    elif spec.kind == "line":
-        df = to_frame(result.columns, result.rows)
-        metric_units = {units.get(m) for m in spec.y}
-        same_scale = len(metric_units) == 1 and None not in metric_units
-        fmt = d3_format(units.get(spec.y[0]))
-        if len(spec.y) > 1 and not spec.series and not same_scale:
-            # measures of different (or unknown) scale — e.g. net sales AND a %
-            # change — get one panel each so neither is squashed onto the other's
-            # axis (a % near 0 vanishes next to sales in the hundreds).
-            for metric in spec.y:
-                st.caption(metric.replace("_", " "))
-                st.altair_chart(
-                    line_panel(df, spec.x, metric, _percent_measure(metric, units),
-                               x_type=types.get(spec.x)),
-                    use_container_width=True,
-                )
-        elif spec.series:
-            # single measure split by a categorical over time -> one line per series
-            st.altair_chart(line_chart(df, spec.x, spec.y[0], color=spec.series, fmt=fmt,
-                                       x_type=types.get(spec.x), story=story),
-                            use_container_width=True)
-        elif len(spec.y) == 1:
-            st.altair_chart(line_chart(df, spec.x, spec.y[0], fmt=fmt,
-                                       x_type=types.get(spec.x), story=story),
-                            use_container_width=True)
-        else:  # 2+ same-scale measures -> one line per measure
-            long_df = df.melt(id_vars=[spec.x], value_vars=spec.y,
-                              var_name="measure", value_name="value")
-            st.altair_chart(line_chart(long_df, spec.x, "value", color="measure", fmt=fmt,
-                                       x_type=types.get(spec.x), story=story),
-                            use_container_width=True)
-    elif spec.kind == "bar" and spec.orientation == "grouped":
-        # Same-unit measures (e.g. sales vs budget) compared side by side on one
-        # formatted axis.
-        st.altair_chart(
-            grouped_bar(to_frame(result.columns, result.rows), spec.x, spec.y,
-                        fmt=d3_format(units.get(spec.y[0]))),
-            use_container_width=True,
-        )
-    elif spec.kind == "bar" and spec.orientation == "horizontal":
-        # One sorted horizontal bar per measure. With 2+ different-unit measures
-        # (e.g. units and dollars) they render as small multiples — never mixed
-        # on one axis. A shared product order (by the first measure) keeps rows
-        # aligned so a product is easy to scan measure-to-measure.
-        # High-cardinality categoricals get capped: keep the top-N by the first
-        # measure and fold the rest into a muted "Other" bucket (sorted last).
-        cols, rows = bucket_long_tail(result.columns, result.rows, spec.x, spec.y[0])
-        df = to_frame(cols, rows)
-        muted = "Other" if any(r[cols.index(spec.x)] == "Other" for r in rows) else None
-        order = df.sort_values(spec.y[0], ascending=False)[spec.x].tolist()
-        if muted:  # keep "Other" at the bottom regardless of its value
-            order = [c for c in order if c != "Other"] + ["Other"]
-        for metric in spec.y:
-            if len(spec.y) > 1:
-                st.caption(metric.replace("_", " "))
-            st.altair_chart(
-                horizontal_bar(df, spec.x, metric, sort=order,
-                               fmt=d3_format(units.get(metric)), story=story, mute=muted),
-                use_container_width=True,
-            )
-    elif spec.kind == "bar" and spec.orientation == "stacked":
-        # one measure split by a categorical over time -> stacked bar (total + mix)
-        st.altair_chart(
-            stacked_bar(to_frame(result.columns, result.rows), spec.x, spec.series,
-                        spec.y[0], fmt=d3_format(units.get(spec.y[0])),
-                        x_type=types.get(spec.x)),
-            use_container_width=True,
-        )
-    elif spec.kind == "heatmap":
-        # two categorical dimensions x one measure -> a color-encoded matrix
-        st.altair_chart(
-            heatmap(to_frame(result.columns, result.rows), spec.x, spec.series,
-                    spec.y[0], fmt=d3_format(units.get(spec.y[0]))),
-            use_container_width=True,
-        )
-    elif spec.kind == "bar":
-        st.bar_chart(chart_frame(spec, result.columns, result.rows))
+    else:
+        # Auto-pick the recommended chart, but let the user switch type (every agentic
+        # BI tool does this). options[0] is choose_chart's pick; the selection persists
+        # per message via a stable id key.
+        payload.setdefault("id", uuid.uuid4().hex)
+        options = compatible_charts(result.ir, result.columns, result.rows,
+                                    units, additive, types)
+        selected = options[0]
+        if len(options) > 1:
+            selected = st.segmented_control(
+                "Chart type", options, default=options[0],
+                key=f"chart_{payload['id']}", label_visibility="collapsed") or options[0]
+        # Story overlays (title/annotations) only fit the recommended kind; drop them
+        # when the user overrides to a different chart.
+        render_chart(st, selected, spec, result, units, additive, types,
+                     story if selected == spec.kind else None)
 
     st.dataframe(_display_frame(result, types), use_container_width=True)
     with st.expander("Show SQL"):

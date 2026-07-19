@@ -340,6 +340,51 @@ class TestAppHelpers(unittest.TestCase):
         self.assertTrue(any(c == "Interpreted as: revenue of the past 6 days for Contoso SAS"
                             for c in st.captions))
 
+    def test_render_chart_honors_selected_kind_override(self):
+        from text2sql.engine.ir import SemanticQuery
+
+        class _CaptureSt:
+            def __init__(self): self.charts = []
+            def altair_chart(self, chart, **k): self.charts.append(chart)
+            def bar_chart(self, *a, **k): self.charts.append("bar_chart")
+            def caption(self, *a, **k): pass
+            def columns(self, spec): return [self] * (spec if isinstance(spec, int) else len(spec))
+            def metric(self, *a, **k): pass
+
+        result = SimpleNamespace(
+            ir=SemanticQuery(metrics=["total_net_sales"], dimensions=["month"]),
+            columns=["month", "total_net_sales"],
+            rows=[("2026-01-01", 3.0), ("2026-02-01", 5.0), ("2026-03-01", 4.0)],
+            sql="", semantic_sql=None, rewritten=None)
+        spec = app.choose_chart(result.ir, result.columns, result.rows,
+                                types={"month": "month"})
+        self.assertEqual(spec.kind, "line")  # the recommended default
+
+        def marks(chart):
+            d = chart.to_dict()
+            return ({d["mark"]["type"] if isinstance(d["mark"], dict) else d["mark"]}
+                    if "mark" in d else
+                    {(x["mark"]["type"] if isinstance(x["mark"], dict) else x["mark"])
+                     for x in d["layer"]})
+
+        # native kind -> a line
+        st = _CaptureSt()
+        app.render_chart(st, "line", spec, result, {"total_net_sales": "usd"}, {},
+                         {"month": "month"}, None)
+        self.assertIn("line", marks(st.charts[0]))
+
+        # override to area -> an area mark
+        st = _CaptureSt()
+        app.render_chart(st, "area", spec, result, {"total_net_sales": "usd"}, {},
+                         {"month": "month"}, None)
+        self.assertIn("area", marks(st.charts[0]))
+
+        # override to bar -> the simple vertical bar fallback (st.bar_chart)
+        st = _CaptureSt()
+        app.render_chart(st, "bar", spec, result, {"total_net_sales": "usd"}, {},
+                         {"month": "month"}, None)
+        self.assertEqual(st.charts, ["bar_chart"])
+
     def test_reset_session_clears_history_and_remints_thread(self):
         state = {"history": [{"role": "user", "text": "hi"}], "thread_id": "old-thread",
                  "dataset": "sales"}
