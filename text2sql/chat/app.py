@@ -43,7 +43,7 @@ from text2sql.chat.plots import (
     _display_frame, _fmt_number, _md_safe, _percent_measure, _pretty, area_chart,
     bucket_long_tail, chart_frame, comparison_grouped_bar, comparison_long, d3_format,
     faceted_line, grouped_bar, heatmap, horizontal_bar, line_chart, line_panel,
-    scatter_chart, stacked_bar, to_frame, vertical_grouped_bar,
+    needs_split, scatter_chart, stacked_bar, to_frame, vertical_grouped_bar,
 )
 from text2sql.chat.summarizer import AnthropicSummarizer, MockSummarizer
 from text2sql.eval.history import load_history
@@ -214,6 +214,17 @@ def _fallback_summary(rows) -> str:
 
 
 # ---- Streamlit rendering (only runs under `streamlit run`) -----------------
+def metric_panels(st, df, x, metrics, units, x_type, build):
+    """Render one small-multiple panel per metric, each captioned and on its own
+    axis (a percent-like measure gets a `%` axis). Shared by the line and area
+    series families so a mixed-scale result never squashes one measure onto
+    another's; `build(df, x, metric, percent, x_type)` draws a single-metric panel."""
+    for metric in metrics:
+        st.caption(_pretty(metric))
+        st.altair_chart(build(df, x, metric, _percent_measure(metric, units), x_type),
+                        use_container_width=True)
+
+
 def render_chart(st, kind, spec, result, units, additive, types, story):
     """Draw ONE chart of the given `kind` from the result + spec. The switcher calls
     this with the user's selected kind (defaulting to choose_chart's pick), so the
@@ -249,16 +260,11 @@ def render_chart(st, kind, spec, result, units, additive, types, story):
         st.altair_chart(faceted_line(df, spec.x, spec.y[0], spec.series, spec.facet,
                         fmt=fmt, x_type=types.get(spec.x)), use_container_width=True)
     elif kind == "line":
-        metric_units = {units.get(m) for m in spec.y}
-        same_scale = len(metric_units) == 1 and None not in metric_units
-        if len(spec.y) > 1 and not spec.series and not same_scale:
+        if needs_split(spec.y, units) and not spec.series:
             # measures of different (or unknown) scale get one panel each so neither
             # is squashed onto the other's axis.
-            for metric in spec.y:
-                st.caption(_pretty(metric))
-                st.altair_chart(line_panel(df, spec.x, metric,
-                                _percent_measure(metric, units), x_type=types.get(spec.x)),
-                                use_container_width=True)
+            metric_panels(st, df, spec.x, spec.y, units, types.get(spec.x),
+                          lambda d, x, m, pct, xt: line_panel(d, x, m, percent=pct, x_type=xt))
         elif spec.series:
             st.altair_chart(line_chart(df, spec.x, spec.y[0], color=spec.series, fmt=fmt,
                             x_type=types.get(spec.x), story=story),
@@ -274,7 +280,13 @@ def render_chart(st, kind, spec, result, units, additive, types, story):
                             x_type=types.get(spec.x), story=story),
                             use_container_width=True)
     elif kind == "area":
-        if len(spec.y) > 1 and not spec.series:
+        if needs_split(spec.y, units) and not spec.series:
+            # same split as the line path: a mixed-scale measure (e.g. a percent
+            # change beside a USD metric) gets its own area panel and axis.
+            metric_panels(st, df, spec.x, spec.y, units, types.get(spec.x),
+                          lambda d, x, m, pct, xt: area_chart(d, x, m, percent=pct,
+                          fmt=d3_format(units.get(m)), x_type=xt))
+        elif len(spec.y) > 1 and not spec.series:  # 2+ same-scale measures -> stacked area
             long_df = df.melt(id_vars=[spec.x], value_vars=spec.y,
                               var_name="measure", value_name="value")
             st.altair_chart(area_chart(long_df, spec.x, "value", color="measure", fmt=fmt,
@@ -372,11 +384,9 @@ def _render_model_map(st, model):
     """The Model Map view: a color-coded star-schema diagram plus a per-table
     inspector. Reads only the semantic model — no database, no LLM."""
     st.markdown(
-        "This is the whole vocabulary the assistant is allowed to use. It writes "
-        "SQL over a single *virtual* table whose columns are these metrics and "
-        "dimensions, and every query is **validated against the model** — so it "
-        "can only reference fields that exist here, never a physical table or a "
-        "join it invents. The compiler resolves the real joins."
+        "This is the whole vocabulary the assistant is allowed to use. It can "
+        "**only** pick metrics, dimensions, and filters from these tables — it "
+        "never writes free-form SQL, so it can't invent a column or a join."
     )
     st.graphviz_chart(model_to_dot(model), use_container_width=True)
     st.caption("🟨 fact tables (carry metrics)   🟦 dimension tables   ·   arrows show join keys")

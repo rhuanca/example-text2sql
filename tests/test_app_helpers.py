@@ -1,3 +1,4 @@
+import json
 import unittest
 from types import SimpleNamespace
 
@@ -5,6 +6,7 @@ from tests.util import load_sales_model
 from text2sql.chat import app, plots
 from text2sql.chat.charts import ChartSpec
 from text2sql.engine.compare import Comparison
+from text2sql.engine.semantic_sql import QueryShape
 
 
 def _marks(spec):
@@ -162,6 +164,48 @@ class TestAppHelpers(unittest.TestCase):
         spec = app.line_panel(df, "iso_week", "total_net_sales", percent=False).to_dict()
         self.assertNotIn("layer", spec)  # single line, no zero rule
         self.assertNotIn("labelExpr", spec["encoding"]["y"].get("axis") or {})
+
+    def test_needs_split(self):
+        self.assertFalse(plots.needs_split(["a"], {}))                              # single measure
+        self.assertFalse(plots.needs_split(["a", "b"], {"a": "usd", "b": "usd"}))   # same known unit
+        self.assertTrue(plots.needs_split(["a", "b"], {"a": "usd"}))                # one unit unknown
+        self.assertTrue(plots.needs_split(["rev", "pct_change"],                    # different units
+                                          {"rev": "usd", "pct_change": "percent"}))
+
+    def test_area_chart_percent_axis(self):
+        df = app.to_frame(["month", "pct_change"], [("2026-01-01", -4.5), ("2026-02-01", 2.1)])
+        spec = plots.area_chart(df, "month", "pct_change", percent=True).to_dict()
+        self.assertIn("+ '%'", json.dumps(spec))       # percent-formatted y-axis
+        plain = plots.area_chart(df, "month", "pct_change").to_dict()
+        self.assertNotIn("+ '%'", json.dumps(plain))   # non-percent area is unchanged
+
+    def test_render_area_and_line_split_mixed_scale_panels(self):
+        """A USD metric next to a scale-less percent change renders as one panel per
+        metric (its own axis) for BOTH line and area — the shared split layout."""
+        class _CaptureSt:
+            def __init__(self): self.charts, self.captions = [], []
+            def altair_chart(self, chart, **k): self.charts.append(chart)
+            def caption(self, text, *a, **k): self.captions.append(text)
+            def columns(self, spec): return [self] * (spec if isinstance(spec, int) else len(spec))
+            def metric(self, *a, **k): pass
+
+        result = SimpleNamespace(
+            ir=QueryShape(metrics=["total_net_sales", "pct_change"], dimensions=["month"]),
+            columns=["month", "total_net_sales", "pct_change"],
+            rows=[("2026-01-01", 3000.0, None), ("2026-02-01", 2700.0, -10.0),
+                  ("2026-03-01", 2800.0, 3.7)],
+            sql="", semantic_sql=None, rewritten=None)
+        spec = app.choose_chart(result.ir, result.columns, result.rows, types={"month": "month"})
+        units = {"total_net_sales": "usd"}  # pct_change has no unit -> mixed scale -> split
+
+        for kind in ("area", "line"):
+            st = _CaptureSt()
+            app.render_chart(st, kind, spec, result, units, {}, {"month": "month"}, None)
+            self.assertEqual(len(st.charts), 2, f"{kind}: one panel per metric")
+            self.assertEqual(len(st.captions), 2, f"{kind}: one caption per metric")
+            # the pct_change panel (2nd metric) gets a % axis; the USD panel does not
+            self.assertIn("+ '%'", json.dumps(st.charts[1].to_dict()), kind)
+            self.assertNotIn("+ '%'", json.dumps(st.charts[0].to_dict()), kind)
 
     def test_fmt_number_by_unit(self):
         self.assertEqual(app._fmt_number(21177.75, "usd"), "$21,177.75")

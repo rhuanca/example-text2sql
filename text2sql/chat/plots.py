@@ -101,6 +101,15 @@ def _percent_measure(name: str, units: dict) -> bool:
     return any(t in n for t in _PCT_TOKENS)
 
 
+def needs_split(metrics: list, units: dict) -> bool:
+    """Should a multi-measure time series render as one panel per metric (each on
+    its own axis) rather than combined onto a shared axis? Yes unless every measure
+    shares one *known* unit — measures of different or unknown scale would squash
+    one another (e.g. a USD metric next to a percent change)."""
+    scales = {units.get(m) for m in metrics}
+    return len(metrics) > 1 and not (len(scales) == 1 and None not in scales)
+
+
 _MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
@@ -535,11 +544,13 @@ def line_panel(df: pd.DataFrame, x: str, metric: str, percent: bool = False,
 
 
 def area_chart(df: pd.DataFrame, x: str, metric: str, color: str | None = None, fmt=",",
-               x_type: str | None = None, story=None):
+               x_type: str | None = None, story=None, percent: bool = False):
     """A filled time-series area (a line's sibling, emphasizing magnitude/volume):
     a single blue area anchored at zero with a solid top line and the story overlays,
     or a stacked area per `color` category. Chosen via the chart-type switcher for a
-    time-series shape (the default stays a line)."""
+    time-series shape (the default stays a line). A percent-like measure gets a
+    `%`-formatted y-axis and a zero baseline (as in `line_panel`), so it isn't
+    squashed when shown as its own small-multiple panel."""
     import altair as alt
 
     df, xsort = _month_axis(df, x, x_type)
@@ -547,11 +558,15 @@ def area_chart(df: pd.DataFrame, x: str, metric: str, color: str | None = None, 
     if color:
         tooltip.append(alt.Tooltip(f"{color}:N", title=_pretty(color)))
     tooltip.append(alt.Tooltip(f"{metric}:Q", format=fmt))
+    y_kw = dict(title=None, stack="zero" if color else None,
+                axis=alt.Axis(labelExpr="format(datum.value, '.1f') + '%'", labelColor=INK_MUTED)
+                if percent else alt.Axis(format=fmt, labelColor=INK_MUTED))
+    if percent:
+        y_kw["scale"] = alt.Scale(zero=True)
     enc = {
         "x": alt.X(f"{x}:O", title=_pretty(x), sort=xsort,
                    axis=alt.Axis(labelColor=INK_SECONDARY)),
-        "y": alt.Y(f"{metric}:Q", title=None, stack="zero" if color else None,
-                   axis=alt.Axis(format=fmt, labelColor=INK_MUTED)),
+        "y": alt.Y(f"{metric}:Q", **y_kw),
         "tooltip": tooltip,
     }
     if color:
