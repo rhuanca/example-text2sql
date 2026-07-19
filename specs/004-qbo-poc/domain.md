@@ -5,6 +5,12 @@ export. Same invariant as the sales demo: **the LLM never emits SQL** — it onl
 picks metrics/dimensions/filters from `models/qbo.yml`, and the deterministic
 compiler produces the SQL.
 
+> **Superseded by [ADR-0001](../decisions/0001-semantic-sql-over-fixed-ir.md) / [spec 005](../005-semantic-sql-frontend/spec.md).** The LLM now writes
+> semantic SQL over a virtual table, validated against `models/qbo.yml` before
+> compilation. The safety property is the same (only known fields, no physical
+> tables/joins), just enforced by validation instead of by construction. The QBO
+> model + POC below are unchanged.
+
 ## Source tables (13 given), and how we use them
 
 The export is SQL Server (`dbo`, `varchar(max)`), one table per QBO object plus

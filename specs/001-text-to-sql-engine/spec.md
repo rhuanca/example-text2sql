@@ -27,6 +27,11 @@ This spec covers the **engine only**. A chat UI with plots is a later spec.
 - Implement the engine as **NL → Semantic Query IR → deterministic SQL**.
   The LLM never writes raw SQL; it only selects metrics/dimensions/filters
   into a structured object. A deterministic, dialect-aware compiler emits SQL.
+  > **Superseded by [ADR-0001](../decisions/0001-semantic-sql-over-fixed-ir.md) / [spec 005](../005-semantic-sql-frontend/spec.md).** The LLM
+  > now authors semantic SQL over a *virtual* table, which is parsed and
+  > validated against the model (the new safety boundary) before being normalized
+  > to the same IR. Everything from the IR onward — the compiler, the fan-out
+  > guard, dialects — is unchanged. Kept here as the original design record.
 - Ship a concrete model for three tables: **fact_sales, dim_store, fact_budget**.
 - Seed a SQLite database with small, deterministic sample data sufficient to
   answer real questions (e.g. "How is Dozen Glazed performing week over week?").

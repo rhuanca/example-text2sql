@@ -89,7 +89,11 @@ Result carries a `QueryShape` (metrics/dimensions) for chart selection.
 - Python 3.13, `uv` for everything (`uv add`, `uv run`), stdlib `unittest` for tests.
 - The compiler, validator, and eval scorer are pure (no I/O, no LLM) and must stay that
   way — that's what keeps them deterministically testable.
-- Spec-driven: each feature has a `specs/NNN-*/` folder (spec, plan, tasks). Specs 001
-  (engine), 002 (chat UI), 003 (eval harness) are done; live Postgres execution is future work.
+- Spec-driven (**spec-lite**): each feature is one `specs/NNN-<slug>/spec.md` (≈ the approved
+  plan, committed with the work — the full spec+plan+tasks triad, as in 001–003, is reserved for
+  large features). Architectural decisions get an ADR in `specs/decisions/NNNN-*.md`. See
+  `specs/README.md` for the templates, workflow, and the full inventory. Current: engine (001/005),
+  portability (006), observability (007), charts (008), evals (003/009), CTEs (010); ADRs 0001–0005.
+  Live Postgres/MySQL execution is future work.
 </content>
 </invoke>
