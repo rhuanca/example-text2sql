@@ -12,11 +12,11 @@ scope is visible and reversible.
 
 from __future__ import annotations
 
-import os
 import time
 from typing import Protocol
 
 from ..trace import usage
+from ..trace.llm import build_anthropic_client, tool_input
 
 _SYSTEM = (
     "You rewrite a user's latest question into a STANDALONE question for a SQL "
@@ -89,13 +89,7 @@ class AnthropicRewriter:
             key = config.get_api_key()
             if not key:
                 raise RuntimeError("ANTHROPIC_API_KEY is not set")
-            import anthropic
-
-            client = anthropic.Anthropic(api_key=key)
-            if os.environ.get("LANGSMITH_TRACING", "").lower() in ("1", "true"):
-                from langsmith.wrappers import wrap_anthropic
-
-                client = wrap_anthropic(client)
+            client = build_anthropic_client(key)
         self.client = client
 
     def rewrite(self, question: str, history: list) -> str:
@@ -111,7 +105,5 @@ class AnthropicRewriter:
             messages=[{"role": "user", "content": build_rewrite_prompt(question, history)}],
         )
         usage.record_usage("rewrite", self.model, resp, (time.monotonic() - t0) * 1000)
-        for block in resp.content:
-            if getattr(block, "type", None) == "tool_use" and block.name == "emit_question":
-                return block.input["question"].strip() or question
-        return question  # defensively fall back to the original
+        # fall back to the original question if the tool gave nothing usable
+        return (tool_input(resp, "emit_question", "question") or "").strip() or question

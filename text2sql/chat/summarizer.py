@@ -7,11 +7,11 @@ MockSummarizer for tests, and AnthropicSummarizer for the real app.
 
 from __future__ import annotations
 
-import os
 import time
 from typing import Protocol
 
 from ..trace import usage
+from ..trace.llm import build_anthropic_client
 
 _SYSTEM = (
     "You summarize SQL query results for a business user in 1-2 short sentences. "
@@ -58,15 +58,7 @@ class AnthropicSummarizer:
             key = config.get_api_key()
             if not key:
                 raise RuntimeError("ANTHROPIC_API_KEY is not set")
-            import anthropic
-
-            client = anthropic.Anthropic(api_key=key)
-            # Optional LangSmith tracing (no-op unless LANGSMITH_TRACING is set),
-            # matching the planner/rewriter so all three calls land in the trace.
-            if os.environ.get("LANGSMITH_TRACING", "").lower() in ("1", "true"):
-                from langsmith.wrappers import wrap_anthropic
-
-                client = wrap_anthropic(client)
+            client = build_anthropic_client(key)
         self.client = client
 
     def summarize(self, question, columns, rows) -> str:

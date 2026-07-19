@@ -10,12 +10,12 @@ than a concrete LLM client; AnthropicPlanner is the real implementation.
 from __future__ import annotations
 
 import json
-import os
 import time
 from typing import Protocol
 
 from ..semantic.model import SemanticModel
 from ..trace import usage
+from ..trace.llm import build_anthropic_client, tool_input
 
 
 class PlannerError(Exception):
@@ -197,14 +197,7 @@ class AnthropicPlanner:
             key = config.get_api_key()
             if not key:
                 raise PlannerError("ANTHROPIC_API_KEY is not set")
-            import anthropic
-
-            client = anthropic.Anthropic(api_key=key)
-            # Optional LangSmith tracing (no-op unless LANGSMITH_TRACING is set).
-            if os.environ.get("LANGSMITH_TRACING", "").lower() in ("1", "true"):
-                from langsmith.wrappers import wrap_anthropic
-
-                client = wrap_anthropic(client)
+            client = build_anthropic_client(key)
         self.client = client
 
     def plan(self, question, model, error=None, history=None) -> str:
@@ -232,7 +225,7 @@ class AnthropicPlanner:
             messages=[{"role": "user", "content": content}],
         )
         usage.record_usage("plan", self.model, resp, (time.monotonic() - t0) * 1000)
-        for block in resp.content:
-            if getattr(block, "type", None) == "tool_use" and block.name == "emit_sql":
-                return block.input["sql"]
-        raise PlannerError("planner did not return an emit_sql tool call")
+        sql = tool_input(resp, "emit_sql", "sql")
+        if sql is None:
+            raise PlannerError("planner did not return an emit_sql tool call")
+        return sql
