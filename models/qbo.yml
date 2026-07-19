@@ -65,8 +65,16 @@ dimensions:
       sample_values: ["2026-01", "2026-02"] }
   - { table: txn, name: txn_quarter, column: Quarter, type: quarter,
       synonyms: [quarter, qtr] }
+  # start date (ISO Monday) of the week — the chronological weekly bucket for
+  # trends and week-over-week; carries the year, so it never collides across years.
+  - { table: txn, name: week_start, expr: "date(Date, '-6 days', 'weekday 1')",
+      type: date,
+      description: "Start date (Monday) of the ISO week — the weekly bucket for trends and week-over-week.",
+      synonyms: [week, week starting, week over week, weekly, week start],
+      sample_values: ["2026-11-09", "2026-11-16"] }
   - { table: txn, name: week_number, column: Week, type: week,
-      synonyms: [week, week number, week of year] }
+      description: "Week number 1-52, year-agnostic — for comparing the same week across years.",
+      synonyms: [week number, week of year] }
   - { table: txn, name: entity, column: Entity,
       synonyms: [company, legal entity, subsidiary, book],
       sample_values: ["Northwind Inc.", "Contoso SAS"] }
@@ -171,6 +179,11 @@ verified_queries:
     sql: >
       SELECT month, total_amount FROM qbo_finance
       WHERE classification = 'Revenue' GROUP BY month ORDER BY month
+  # week-over-week trends bucket by week_start (the week's date), not week_number.
+  - question: "Revenue week over week"
+    sql: >
+      SELECT week_start, total_amount FROM qbo_finance
+      WHERE classification = 'Revenue' GROUP BY week_start ORDER BY week_start
   - question: "Top 10 expense accounts"
     sql: >
       SELECT account_name, total_amount FROM qbo_finance

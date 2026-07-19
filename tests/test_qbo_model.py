@@ -94,6 +94,30 @@ class TestModel(QboCase):
         self.assertTrue(all(re.match(r"^\d{4}-\d{2}$", r[0]) for r in rows))
         self.assertEqual([r[0] for r in rows], sorted(r[0] for r in rows))  # chronological
 
+    def test_week_start_labels_weeks_by_date(self):
+        # week-over-week trends bucket by week_start (ISO Monday date), not week_number.
+        # Also exercises a last_period window on a derived date dim.
+        import re
+        from text2sql.engine.semantic_sql import compile_semantic_sql
+
+        d = self.model.dimension("week_start")
+        self.assertEqual(d.type, "date")
+        self.assertTrue(d.expr)
+        sql, params, _ = compile_semantic_sql(
+            "SELECT week_start, total_amount FROM qbo_finance "
+            "WHERE classification = 'Revenue' AND week_start >= last_period(6, 'week') "
+            "GROUP BY week_start ORDER BY week_start",
+            self.model, self.dialect,
+        )
+        conn = sqlite3.connect(self.db)
+        try:
+            rows = conn.execute(sql, params).fetchall()
+        finally:
+            conn.close()
+        self.assertTrue(rows)
+        self.assertTrue(all(re.match(r"^\d{4}-\d{2}-\d{2}$", r[0]) for r in rows))  # dates
+        self.assertEqual([r[0] for r in rows], sorted(r[0] for r in rows))  # chronological
+
     def test_net_income_joins_accounts_and_nets_revenue_minus_expense(self):
         sql, rows = self.run_ir({
             "metrics": ["net_income"], "dimensions": ["txn_month"],
