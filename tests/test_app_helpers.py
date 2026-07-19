@@ -222,11 +222,11 @@ class TestAppHelpers(unittest.TestCase):
 
     def test_grouped_bar_colors_by_measure(self):
         df = app.to_frame(
-            ["store_id", "total_net_sales", "total_budget"],
+            ["store_id", "total_net_sales", "sales_goal"],
             [("ST001", 100.0, 110.0), ("ST002", 80.0, 85.0)],
         )
         spec = app.grouped_bar(
-            df, "store_id", ["total_net_sales", "total_budget"], fmt="$,.2f"
+            df, "store_id", ["total_net_sales", "sales_goal"], fmt="$,.2f"
         ).to_dict()
         enc = spec["encoding"]
         self.assertEqual(enc["color"]["field"], "measure")

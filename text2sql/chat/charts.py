@@ -108,7 +108,7 @@ def choose_chart(ir, columns: list[str], rows: list, units: dict | None = None,
         dim = effective[0]
         if is_time_like(dim, types):
             return ChartSpec("line", x=dim, y=metrics)
-        # Two+ measures that share a unit (e.g. sales vs budget, both USD) can
+        # Two+ measures that share a unit (e.g. sales vs goal, both USD) can
         # sit on one axis -> a grouped bar. Different units (dollars vs a count)
         # must NOT share an axis -> small multiples (one horizontal bar each).
         # A single measure is just a horizontal bar. The spec carries every

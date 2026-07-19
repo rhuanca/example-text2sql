@@ -145,18 +145,20 @@ cases:
       order_by: [{ field: total_net_sales, dir: desc }]
       limit: 5
 
+  # "budget"/"budgeted" phrasings must still resolve to the renamed sales_goal
+  # metric (budget is now a synonym), so these double as back-compat coverage.
   - id: budget-vs-actual
     question: "Budget vs actual by store"
     tags: [fan-out, multi-base]
     expected:
-      metrics: [total_net_sales, total_budget]
+      metrics: [total_net_sales, sales_goal]
       dimensions: [store_id]
 
   - id: total-budget-scalar
     question: "What is our total budgeted sales target?"
     tags: [scalar, single-table]
     expected:
-      metrics: [total_budget]
+      metrics: [sales_goal]
       dimensions: []
 
   # ---- semantic-SQL cases (reference SQL, not IR) --------------------------

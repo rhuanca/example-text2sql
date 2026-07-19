@@ -69,12 +69,12 @@ class TestExecutor(unittest.TestCase):
         a store's budget is never multiplied by its number of sales lines."""
         columns, rows = self.run_ir(
             {
-                "metrics": ["total_net_sales", "total_budget"],
+                "metrics": ["total_net_sales", "sales_goal"],
                 "dimensions": ["store_id"],
                 "order_by": [{"field": "store_id", "dir": "asc"}],
             }
         )
-        self.assertEqual(columns, ["store_id", "total_net_sales", "total_budget"])
+        self.assertEqual(columns, ["store_id", "total_net_sales", "sales_goal"])
         by_store = {r[0]: r for r in rows}
 
         raw_budget = dict(

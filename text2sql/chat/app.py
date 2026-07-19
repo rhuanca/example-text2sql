@@ -73,11 +73,11 @@ DATASETS = {
         model_path=os.path.join(REPO_ROOT, "models", "sales.yml"),
         db_path=os.path.join(REPO_ROOT, "demo.db"),
         build_db=build_sales_db,
-        placeholder="Ask about sales, budget, or stores…",
+        placeholder="Ask about sales, goals, or stores…",
         examples=[
             "How is Cappuccino performing week over week?",
             "What were total net sales by market?",
-            "Budget vs actual by store",
+            "Sales goal vs actual by store",
         ],
     ),
     "qbo": Dataset(

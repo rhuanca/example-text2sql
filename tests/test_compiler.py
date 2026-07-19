@@ -121,7 +121,7 @@ class TestJoinsAndFanout(CompilerCase):
     def test_budget_vs_actual_is_aggregate_then_join(self):
         sql, _ = self.c(
             {
-                "metrics": ["total_net_sales", "total_budget"],
+                "metrics": ["total_net_sales", "sales_goal"],
                 "dimensions": ["store_id"],
             }
         )
@@ -135,13 +135,13 @@ class TestJoinsAndFanout(CompilerCase):
         self.assertNotIn('JOIN "fact_sales"', sql)
         # both metrics surface
         self.assertIn('AS "total_net_sales"', sql)
-        self.assertIn('AS "total_budget"', sql)
+        self.assertIn('AS "sales_goal"', sql)
 
     def test_multibase_non_shared_dimension_rejected(self):
         with self.assertRaises(CompileError):
             self.c(
                 {
-                    "metrics": ["total_net_sales", "total_budget"],
+                    "metrics": ["total_net_sales", "sales_goal"],
                     "dimensions": ["product_name"],
                 }
             )

@@ -22,7 +22,7 @@ RULES = [
     (
         "budget",
         {
-            "metrics": ["total_net_sales", "total_budget"],
+            "metrics": ["total_net_sales", "sales_goal"],
             "dimensions": ["store_id"],
         },
     ),
@@ -70,7 +70,7 @@ class TestEngineE2E(EngineCase):
     def test_budget_question(self):
         engine = self.make_engine(RulePlanner(RULES))
         result = engine.ask("Show budget vs actual by store")
-        self.assertIn("total_budget", result.columns)
+        self.assertIn("sales_goal", result.columns)
         self.assertEqual(len(result.rows), len(DIM_STORE))
 
     def test_ask_accepts_thread_id(self):

@@ -129,11 +129,11 @@ class TestChooseChart(unittest.TestCase):
 
     def test_same_unit_measures_group(self):
         # both USD -> may share one axis as a grouped bar
-        cols = ["store_id", "total_net_sales", "total_budget"]
+        cols = ["store_id", "total_net_sales", "sales_goal"]
         rows = [("ST001", 100.0, 110.0), ("ST002", 80.0, 85.0)]
-        units = {"total_net_sales": "usd", "total_budget": "usd"}
+        units = {"total_net_sales": "usd", "sales_goal": "usd"}
         spec = choose_chart(
-            ir(["total_net_sales", "total_budget"], ["store_id"]), cols, rows, units=units
+            ir(["total_net_sales", "sales_goal"], ["store_id"]), cols, rows, units=units
         )
         self.assertEqual(spec.kind, "bar")
         self.assertEqual(spec.orientation, "grouped")

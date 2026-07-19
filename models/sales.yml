@@ -22,7 +22,8 @@ tables:
     grain: "one row per store per calendar day"
     keys: [store_id]
     description: >
-      Planned daily net sales targets. One row per store per day.
+      The company's sales goals — planned/target net sales per store per day.
+      (Physical table: fact_budget.)
 
 relationships:
   - { from: fact_sales.store_id, to: dim_store.store_id }
@@ -99,10 +100,13 @@ metrics:
       THEN transaction_id END)
     synonyms: [orders, order count, checks, transactions, traffic]
     unit: count
-  - name: total_budget
+  - name: sales_goal
     table: fact_budget
     sql: "SUM(budget_net_sales)"
-    synonyms: [budget, budgeted sales, sales target, budget target, plan]
+    description: >
+      The company's sales goal — the planned/target net sales for a store, per day.
+    # "budget" and friends are kept as synonyms so prior phrasings still resolve.
+    synonyms: [sales goal, goal, goals, target, sales target, budget, budgeted sales, plan]
     unit: usd
 
 # Verified queries: curated question -> known-good SEMANTIC SQL (over the virtual
@@ -116,9 +120,9 @@ verified_queries:
     sql: >
       SELECT market, total_net_sales FROM product_sales
       WHERE date >= last_period(30, 'day') GROUP BY market
-  - question: "Budget vs actual by store"
+  - question: "Sales goal vs actual by store"
     sql: >
-      SELECT store_id, total_net_sales, total_budget FROM product_sales
+      SELECT store_id, total_net_sales, sales_goal FROM product_sales
       GROUP BY store_id
   # period-over-period % change: a LAG window over the aggregated metric. The
   # engine lowers it over a deterministic base aggregate; alias the derived column.

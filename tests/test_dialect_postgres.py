@@ -57,7 +57,7 @@ class TestPostgresSeam(unittest.TestCase):
     def test_same_ir_differs_only_by_dialect(self):
         ir = SemanticQuery.from_dict(
             {
-                "metrics": ["total_net_sales", "total_budget"],
+                "metrics": ["total_net_sales", "sales_goal"],
                 "dimensions": ["store_id"],
             }
         )
