@@ -32,6 +32,52 @@ _UNIT_D3 = {"usd": "$,.2f", "count": ",", "percent": ".1%"}
 
 _PCT_TOKENS = ("pct", "percent", "%", "growth", "share", "rate")
 
+_FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+
+
+def _register_theme():
+    """One Vega-Lite theme carrying the shared chart styling — so branding lives in
+    one place instead of being re-applied per builder. Enabled at import; its config
+    is merged into every chart's spec at render time."""
+    import altair as alt
+
+    @alt.theme.register("text2sql", enable=True)
+    def _theme():
+        return alt.theme.ThemeConfig(
+            config={
+                "font": _FONT,
+                "view": {"stroke": None},  # no chart border (was per-builder)
+                "axis": {
+                    "labelColor": INK_MUTED,
+                    "titleColor": INK_SECONDARY,
+                    "domainColor": AXIS_LINE,
+                    "tickColor": AXIS_LINE,
+                    "gridColor": "#ecebe4",
+                    "labelFontSize": 11,
+                    "titleFontSize": 12,
+                },
+                "legend": {
+                    "orient": "top",
+                    "labelColor": INK_SECONDARY,
+                    "titleColor": INK_MUTED,
+                    "symbolType": "square",
+                },
+                "title": {
+                    "anchor": "start",
+                    "color": INK_SECONDARY,
+                    "subtitleColor": INK_MUTED,
+                    "fontSize": 15,
+                    "subtitleFontSize": 12,
+                },
+                "range": {"category": PALETTE},  # categorical color order
+            }
+        )
+
+    return _theme
+
+
+_register_theme()
+
 
 def d3_format(unit: str | None) -> str:
     return _UNIT_D3.get(unit, ",")
@@ -282,8 +328,7 @@ def grouped_bar(df: pd.DataFrame, category: str, metrics: list[str], fmt=","):
             ],
         )
         .properties(height=alt.Step(16))  # per sub-bar; band fits both measures
-        .configure_view(strokeWidth=0)
-    )
+            )
 
 
 def stacked_bar(df: pd.DataFrame, x: str, series: str, metric: str, fmt=",",
@@ -312,8 +357,7 @@ def stacked_bar(df: pd.DataFrame, x: str, series: str, metric: str, fmt=",",
             ],
         )
         .properties(height=340)
-        .configure_view(strokeWidth=0)
-    )
+            )
 
 
 def comparison_grouped_bar(long: pd.DataFrame, category: str, period_field: str,
@@ -439,4 +483,4 @@ def line_panel(df: pd.DataFrame, x: str, metric: str, percent: bool = False,
     if percent:  # a zero reference line to anchor gains vs. drops
         zero = alt.Chart(df).mark_rule(color=AXIS_LINE).encode(y=alt.datum(0))
         chart = zero + line
-    return chart.properties(height=180).configure_view(strokeWidth=0)
+    return chart.properties(height=180)

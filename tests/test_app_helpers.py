@@ -33,6 +33,15 @@ class TestAppHelpers(unittest.TestCase):
         self.assertEqual(df.index.name, "iso_week")
         self.assertEqual(set(df.columns), {"Houston", "Dallas"})
 
+    def test_registered_theme_config_is_applied(self):
+        # the central theme merges into every chart's spec (branding in one place)
+        df = app.to_frame(["m", "v"], [("A", 3), ("B", 5)])
+        cfg = app.horizontal_bar(df, "m", "v").to_dict().get("config", {})
+        self.assertIsNone(cfg["view"]["stroke"])              # no chart border
+        self.assertEqual(cfg["range"]["category"], plots.PALETTE)  # categorical order
+        self.assertEqual(cfg["axis"]["domainColor"], plots.AXIS_LINE)
+        self.assertEqual(cfg["title"]["anchor"], "start")
+
     def test_horizontal_bar_sorts_by_metric_descending(self):
         df = app.to_frame(
             ["product_name", "units_sold"],
