@@ -29,6 +29,22 @@ except ImportError:
 _RECOVERABLE = (SemanticSqlError, ValidationError, CompileError, KeyError, sqlite3.Error)
 
 
+def _tag_thread(thread_id: str | None) -> None:
+    """Attach the conversation id to the current LangSmith run so all turns in a
+    session group into one thread. Best-effort: a no-op when LangSmith is absent
+    or tracing is off (there's no active run tree)."""
+    if not thread_id:
+        return
+    try:
+        from langsmith.run_helpers import get_current_run_tree
+
+        rt = get_current_run_tree()
+        if rt is not None:
+            rt.add_metadata({"thread_id": thread_id, "session_id": thread_id})
+    except Exception:
+        pass
+
+
 def _trace_inputs(inputs: dict) -> dict:
     # Only the question is interesting; drop `self` (the Engine) from the trace.
     return {"question": inputs.get("question")}
@@ -85,7 +101,9 @@ class Engine:
         process_inputs=_trace_inputs,
         process_outputs=_trace_outputs,
     )
-    def ask(self, question: str, history: list | None = None) -> Result:
+    def ask(self, question: str, history: list | None = None,
+            thread_id: str | None = None) -> Result:
+        _tag_thread(thread_id)  # group this turn under its conversation in LangSmith
         # Conversational scope carries here: a rewriter decontextualizes the
         # follow-up into a standalone question, so the planner plans that instead
         # (with no history block — the question already stands alone). Without a

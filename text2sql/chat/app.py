@@ -408,7 +408,8 @@ def main():
             with usage.collect() as calls:  # accrue every LLM call this turn makes
                 try:
                     with st.spinner("Thinking…"):
-                        result = engine.ask(prompt, history=history)
+                        result = engine.ask(prompt, history=history,
+                                        thread_id=st.session_state.thread_id)
                         summary = safe_summarize(
                             summarizer, prompt, result.columns, result.rows
                         )

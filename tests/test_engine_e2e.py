@@ -73,6 +73,13 @@ class TestEngineE2E(EngineCase):
         self.assertIn("total_budget", result.columns)
         self.assertEqual(len(result.rows), len(DIM_STORE))
 
+    def test_ask_accepts_thread_id(self):
+        # thread_id is LangSmith metadata; passing it must not affect the answer,
+        # and is a harmless no-op with tracing off.
+        engine = self.make_engine(RulePlanner(RULES))
+        result = engine.ask("Show budget vs actual by store", thread_id="t-123")
+        self.assertEqual(len(result.rows), len(DIM_STORE))
+
 
 class FlakyPlanner:
     """Returns a bad IR first, then a good one once an error is reported."""
