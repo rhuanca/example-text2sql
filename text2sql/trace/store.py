@@ -51,7 +51,7 @@ CREATE INDEX IF NOT EXISTS idx_calls_turn ON llm_calls(turn_id);
 
 def _best_effort(fn):
     """Persistence must never break the answer path: swallow any exception and
-    return None. (Kept intentionally quiet; flip to logging when there's a logger.)"""
+    return None."""
 
     @functools.wraps(fn)
     def wrapper(self, *args, **kwargs):
@@ -76,18 +76,6 @@ class TraceStore:
         try:
             conn.executescript(_SCHEMA)
             conn.commit()
-        finally:
-            conn.close()
-
-    @_best_effort
-    def start_conversation(self, thread_id: str, dataset: str | None) -> None:
-        conn = self._connect()
-        try:
-            with conn:
-                conn.execute(
-                    "INSERT OR IGNORE INTO conversations(thread_id, dataset) VALUES (?, ?)",
-                    (thread_id, dataset),
-                )
         finally:
             conn.close()
 

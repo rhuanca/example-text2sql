@@ -33,11 +33,13 @@ class TestTraceStore(unittest.TestCase):
             "SELECT name FROM sqlite_master WHERE type='table'")}
         self.assertLessEqual({"conversations", "turns", "llm_calls"}, tables)
 
-    def test_start_conversation_insert_or_ignore(self):
-        self.store.start_conversation("t1", "sales")
-        self.store.start_conversation("t1", "qbo")  # same id ignored, no error
+    def test_record_turn_dedupes_the_conversation(self):
+        # two turns on one thread -> the conversation row is created once (INSERT OR IGNORE)
+        self.store.record_turn(thread_id="t1", dataset="sales", question="q1")
+        self.store.record_turn(thread_id="t1", dataset="sales", question="q2")
         rows = self._query("SELECT thread_id, dataset FROM conversations")
         self.assertEqual(rows, [("t1", "sales")])
+        self.assertEqual(self._query("SELECT COUNT(*) FROM turns")[0][0], 2)
 
     def test_record_turn_writes_turn_and_calls(self):
         calls = [LlmCall("rewrite", "opus", 20, 4, 11.0),
@@ -69,9 +71,8 @@ class TestTraceStore(unittest.TestCase):
 
     def test_writes_are_best_effort(self):
         bad = TraceStore("/nonexistent-dir/nope/traces.db")
-        # none of these raise despite an unwritable path
+        # neither raises despite an unwritable path
         self.assertIsNone(bad.init())
-        self.assertIsNone(bad.start_conversation("t1", "sales"))
         self.assertIsNone(bad.record_turn(thread_id="t1", question="q"))
 
 

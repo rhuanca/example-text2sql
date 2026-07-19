@@ -68,7 +68,7 @@ def record_usage(role: str, model: str, resp, ms: float = 0.0) -> None:
     )
 
 
-def totals(calls) -> tuple[int, int]:
+def totals(calls: list[LlmCall]) -> tuple[int, int]:
     """(input_tokens, output_tokens) summed over a list of LlmCalls."""
     return (
         sum(c.input_tokens for c in calls),
