@@ -19,6 +19,11 @@ _TIME_TOKENS = {"date", "day", "week", "month", "quarter", "year", "time"}
 # two-dimension result falls back to the table instead.
 _HEATMAP_CAP = 25
 
+# A 1-time + 2-categorical result is drawn as small multiples: at most this many facet
+# panels, and at most this many series (palette length) per panel; else -> table.
+_FACET_CAP = 6
+_SERIES_CAP = 8
+
 
 @dataclass
 class ChartSpec:
@@ -30,6 +35,9 @@ class ChartSpec:
     # A single-metric categorical bar is drawn horizontally and sorted by the metric
     # descending, so top-N reads top-to-bottom highest-first (labels stay legible).
     orientation: str = "vertical"
+    # For a 3-dimension result (1 time + 2 categorical): the categorical split into
+    # small-multiple panels; the metric is drawn over `x` (time), one line per `series`.
+    facet: str | None = None
 
 
 def is_time_like(name: str, types: dict | None = None) -> bool:
@@ -132,6 +140,21 @@ def choose_chart(ir, columns: list[str], rows: list, units: dict | None = None,
                 x, ydim = (d0, d1) if n0 <= n1 else (d1, d0)
                 return ChartSpec("heatmap", x=x, y=metrics, series=ydim)
 
+    if len(effective) == 3 and len(metrics) == 1:
+        time_dims = [d for d in effective if is_time_like(d, types)]
+        cats = [d for d in effective if not is_time_like(d, types)]
+        if len(time_dims) == 1 and len(cats) == 2:
+            # 1 time + 2 categorical -> small multiples: facet by the lower-cardinality
+            # categorical (fewer panels), one line per the other categorical, over time.
+            # A "side by side" comparison (e.g. Revenue vs Expense panels, accounts over
+            # weeks) instead of a bare table.
+            cats.sort(key=lambda d: _distinct_count(d, columns, rows))
+            facet, series = cats
+            if (0 < _distinct_count(facet, columns, rows) <= _FACET_CAP
+                    and 0 < _distinct_count(series, columns, rows) <= _SERIES_CAP):
+                return ChartSpec("line", x=time_dims[0], y=metrics, series=series,
+                                 facet=facet)
+
     # Too complex to chart automatically -> show the table.
     return ChartSpec("table", y=metrics)
 
@@ -143,6 +166,8 @@ def compatible_charts(ir, columns: list[str], rows: list, units: dict | None = N
     auto-picks options[0] and lets the user override to another kind in the list.
     Pure — mirrors `choose_chart`."""
     spec = choose_chart(ir, columns, rows, units=units, additive=additive, types=types)
+    if spec.facet:  # small multiples render as faceted lines; only table is an alternative
+        return ["line", "table"]
     k = spec.kind
     if k == "number":
         return ["number", "table"]

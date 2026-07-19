@@ -567,6 +567,33 @@ def area_chart(df: pd.DataFrame, x: str, metric: str, color: str | None = None, 
     return _titled(area.properties(height=320), story)
 
 
+def faceted_line(df: pd.DataFrame, x: str, metric: str, color: str, facet: str,
+                 fmt=",", x_type: str | None = None):
+    """Small multiples for a 1-time + 2-categorical result: the metric over an ordered
+    `x` (time), one line per `color` category, in a panel per `facet` value — a "side by
+    side" comparison (e.g. Revenue vs Expense panels, accounts over weeks). The y-axis is
+    shared across panels so their magnitudes are directly comparable."""
+    import altair as alt
+
+    df, xsort = _month_axis(df, x, x_type)
+    panel = alt.Chart(df).mark_line(point=True).encode(
+        x=alt.X(f"{x}:O", title=None, sort=xsort),
+        y=alt.Y(f"{metric}:Q", title=None, axis=alt.Axis(format=fmt)),
+        color=alt.Color(f"{color}:N", title=None, scale=alt.Scale(range=PALETTE),
+                        legend=alt.Legend(orient="top")),
+        tooltip=[alt.Tooltip(f"{facet}:N", title=_pretty(facet)),
+                 alt.Tooltip(f"{color}:N", title=_pretty(color)),
+                 alt.Tooltip(f"{x}:O"),
+                 alt.Tooltip(f"{metric}:Q", format=fmt)],
+    ).properties(height=200, width=300)
+    return panel.facet(
+        alt.Facet(f"{facet}:N", title=None,
+                  header=alt.Header(labelFontSize=13, labelFontWeight="bold",
+                                    labelColor=INK_SECONDARY)),
+        columns=2,
+    )
+
+
 def scatter_chart(df: pd.DataFrame, x_metric: str, y_metric: str, label: str | None = None,
                   fmt_x=",", fmt_y=","):
     """A scatter for two-measure correlation: each point is a `label` category placed

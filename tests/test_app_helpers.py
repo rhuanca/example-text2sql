@@ -66,6 +66,16 @@ class TestAppHelpers(unittest.TestCase):
         # single-series area is a mark_area (possibly layered with story overlays)
         self.assertIn("area", _marks(spec))
 
+    def test_faceted_line_builds_small_multiples(self):
+        df = app.to_frame(["week_start", "account_name", "classification", "total_amount"],
+                          [("2026-11-16", "Product Sales", "Revenue", 19000.0),
+                           ("2026-11-16", "Payroll Expense", "Expense", 8400.0)])
+        spec = plots.faceted_line(df, "week_start", "total_amount", "account_name",
+                                  "classification", fmt="$,.0f").to_dict()
+        self.assertEqual(spec["facet"]["field"], "classification")   # one panel per facet
+        self.assertEqual(spec["spec"]["mark"]["type"], "line")       # each panel is a line
+        self.assertEqual(spec["spec"]["encoding"]["color"]["field"], "account_name")
+
     def test_scatter_chart_two_metrics(self):
         df = app.to_frame(["store", "budget", "actual"], [("A", 10.0, 12.0), ("B", 20.0, 18.0)])
         spec = plots.scatter_chart(df, "budget", "actual", "store").to_dict()

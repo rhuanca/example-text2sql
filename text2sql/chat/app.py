@@ -41,8 +41,8 @@ from text2sql.chat.model_map import model_to_dot, table_fields
 from text2sql.chat.plots import (
     _display_frame, _fmt_number, _md_safe, _percent_measure, _pretty, area_chart,
     bucket_long_tail, chart_frame, comparison_grouped_bar, comparison_long, d3_format,
-    grouped_bar, heatmap, horizontal_bar, line_chart, line_panel, scatter_chart,
-    stacked_bar, to_frame, vertical_grouped_bar,
+    faceted_line, grouped_bar, heatmap, horizontal_bar, line_chart, line_panel,
+    scatter_chart, stacked_bar, to_frame, vertical_grouped_bar,
 )
 from text2sql.chat.summarizer import AnthropicSummarizer, MockSummarizer
 from text2sql.trace import usage
@@ -205,6 +205,10 @@ def render_chart(st, kind, spec, result, units, additive, types, story):
         for c, metric in zip(cols, spec.y):
             idx = result.columns.index(metric)
             c.metric(metric, _fmt_number(result.rows[0][idx], units.get(metric)))
+    elif kind == "line" and spec.facet:
+        # 1 time + 2 categorical -> small multiples (one panel per facet value)
+        st.altair_chart(faceted_line(df, spec.x, spec.y[0], spec.series, spec.facet,
+                        fmt=fmt, x_type=types.get(spec.x)), use_container_width=True)
     elif kind == "line":
         metric_units = {units.get(m) for m in spec.y}
         same_scale = len(metric_units) == 1 and None not in metric_units

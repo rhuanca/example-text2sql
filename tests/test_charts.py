@@ -37,6 +37,43 @@ class TestChooseChart(unittest.TestCase):
         self.assertIsNotNone(spec.series)
         self.assertNotEqual(spec.x, spec.series)
 
+    def test_time_plus_two_categoricals_is_faceted_line(self):
+        cols = ["week_start", "account_name", "classification", "total_amount"]
+        rows = [("2026-11-16", "Product Sales", "Revenue", 19000.0),
+                ("2026-11-16", "Service Revenue", "Revenue", 11500.0),
+                ("2026-11-16", "Payroll Expense", "Expense", 8400.0),
+                ("2026-11-23", "Product Sales", "Revenue", 19300.0),
+                ("2026-11-23", "Service Revenue", "Revenue", 11700.0),
+                ("2026-11-23", "Payroll Expense", "Expense", 8500.0)]
+        spec = choose_chart(
+            ir(["total_amount"], ["week_start", "account_name", "classification"]), cols, rows,
+            types={"week_start": "week", "account_name": "text", "classification": "text"})
+        self.assertEqual(spec.kind, "line")
+        self.assertEqual(spec.x, "week_start")
+        self.assertEqual(spec.facet, "classification")   # lower cardinality (2) -> facet
+        self.assertEqual(spec.series, "account_name")     # higher (3) -> lines within
+
+    def test_facet_over_series_cap_falls_back_to_table(self):
+        # 9 accounts exceeds the series cap -> no readable small multiples -> table
+        cols = ["week_start", "account_name", "classification", "total_amount"]
+        rows = [(w, f"acct{i}", "Revenue" if i < 5 else "Expense", float(i))
+                for w in ("2026-11-16", "2026-11-23") for i in range(9)]
+        spec = choose_chart(
+            ir(["total_amount"], ["week_start", "account_name", "classification"]), cols, rows,
+            types={"week_start": "week", "account_name": "text", "classification": "text"})
+        self.assertEqual(spec.kind, "table")
+
+    def test_compatible_charts_facet(self):
+        cols = ["week_start", "account_name", "classification", "total_amount"]
+        rows = [("2026-11-16", "Product Sales", "Revenue", 19000.0),
+                ("2026-11-16", "Payroll Expense", "Expense", 8400.0),
+                ("2026-11-23", "Product Sales", "Revenue", 19300.0),
+                ("2026-11-23", "Payroll Expense", "Expense", 8500.0)]
+        opts = compatible_charts(
+            ir(["total_amount"], ["week_start", "account_name", "classification"]), cols, rows,
+            types={"week_start": "week", "account_name": "text", "classification": "text"})
+        self.assertEqual(opts, ["line", "table"])
+
     def test_two_dims_over_cardinality_cap_falls_back_to_table(self):
         # both dims vary, but one has 30 distinct (> cap) -> heatmap unreadable -> table
         cols = ["market", "product", "total_net_sales"]
