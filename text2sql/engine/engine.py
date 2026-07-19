@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from ..semantic.model import SemanticModel
 from .compare import Comparison, compile_comparison, validate_comparison
-from .compiler import CompileError, compile
+from .compiler import CompileError, compile as compile_ir
 from .dialects.base import Dialect
 from .ir import SemanticQuery
 from .planner import Planner
@@ -133,7 +133,7 @@ class Engine:
                         sql, params = compile_comparison(plan, self.model, self.dialect)
                     else:
                         validate_ir(plan, self.model)
-                        sql, params = compile(plan, self.model, self.dialect)
+                        sql, params = compile_ir(plan, self.model, self.dialect)
                 validate_sql(sql)
                 columns, rows = self.executor.run(sql, params)
                 return Result(question, ir, sql, params, columns, rows,

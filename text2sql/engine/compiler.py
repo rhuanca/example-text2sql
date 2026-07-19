@@ -266,8 +266,7 @@ def _where_for_base(ir, model, dialect, base, key_cols):
         if d.column in base_cols or ir.time.field in key_names:
             tbl = qi(model.table(d.table).table)
             colexpr = _col_sql(model, d, dialect, qualify=False)  # grain/derived-aware
-            anchor_col = colexpr
-            clauses.append(_time_clause(ir.time, anchor_col, tbl, colexpr, dialect))
+            clauses.append(_time_clause(ir.time, colexpr, tbl, colexpr, dialect))
 
     return " AND ".join(clauses), params
 

@@ -47,10 +47,9 @@ SQL_TOOL_SCHEMA = {
 
 
 def _examples(model: SemanticModel) -> list[str]:
-    mnames = [m.name for m in model.metrics]
-    if not mnames:
+    if not model.metrics:
         return []
-    m0 = mnames[0]
+    m0 = model.metrics[0].name
     cat = next(
         (d.name for d in model.dimensions if getattr(d, "type", None) not in ("date", "number")),
         None,

@@ -21,13 +21,18 @@ from dataclasses import dataclass
 from sqlglot import errors, exp, parse_one
 
 from .compare import Comparison, compile_comparison, validate_comparison
-from .compiler import compile
+from .compiler import compile as compile_ir
 from .ir import Filter, OrderBy, SemanticQuery, TimeWindow
 from .validator import validate_ir
 
 
 class SemanticSqlError(Exception):
     pass
+
+
+def _unaliased(sel):
+    """The expression under a SELECT item, unwrapping an `AS` alias if present."""
+    return sel.this if isinstance(sel, exp.Alias) else sel
 
 
 @dataclass
@@ -60,7 +65,7 @@ def compile_semantic_sql(sql: str, model, dialect):
         physical, params = compile_comparison(plan, model, dialect)
     else:
         validate_ir(plan, model)
-        physical, params = compile(plan, model, dialect)
+        physical, params = compile_ir(plan, model, dialect)
     return physical, params, plan
 
 
@@ -139,7 +144,7 @@ def _detect_pivot(expr, dim_names, metric_names):
     row_dims: list[str] = []
     cases: list[tuple[str, str, object]] = []  # (metric, period_field, value)
     for sel in expr.expressions:
-        node = sel.this if isinstance(sel, exp.Alias) else sel
+        node = _unaliased(sel)
         if isinstance(node, exp.Column):
             if node.name not in dim_names:
                 return None
@@ -198,7 +203,7 @@ def _parse_case_agg(node, dim_names, metric_names):
 
 # ---- clause extractors -----------------------------------------------------
 def _check_from(expr, model) -> None:
-    frm = expr.find(exp.From)  # sqlglot stores this under "from_"
+    frm = expr.find(exp.From)
     tables = list(frm.find_all(exp.Table)) if frm else []
     if len(tables) != 1 or tables[0].name != model.name:
         raise SemanticSqlError(
@@ -210,7 +215,7 @@ def _select_list(expr, dim_names, metric_names):
     metrics: list[str] = []
     dimensions: list[str] = []
     for sel in expr.expressions:
-        node = sel.this if isinstance(sel, exp.Alias) else sel
+        node = _unaliased(sel)
         if isinstance(node, exp.Star):
             raise SemanticSqlError("SELECT * is not allowed; name the metrics/dimensions")
         if not isinstance(node, exp.Column):
@@ -441,7 +446,7 @@ def _lower_window(expr, model, dialect, dim_names, metric_names):
         having=_having(expr, metric_names), time=time,
     )
     validate_ir(inner, model)
-    inner_sql, params = compile(inner, model, dialect)
+    inner_sql, params = compile_ir(inner, model, dialect)
 
     # outer = the LLM's SELECT/ORDER/LIMIT over the aggregated base subquery
     outer = expr.copy()
@@ -458,7 +463,7 @@ def _lower_window(expr, model, dialect, dim_names, metric_names):
 def _window_shape(expr, dim_names) -> QueryShape:
     metrics, dimensions = [], []
     for sel in expr.expressions:
-        node = sel.this if isinstance(sel, exp.Alias) else sel
+        node = _unaliased(sel)
         if isinstance(node, exp.Column) and node.name in dim_names:
             dimensions.append(sel.alias_or_name)
         else:

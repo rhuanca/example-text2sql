@@ -9,10 +9,10 @@ class SqliteDialect(Dialect):
     def placeholder(self) -> str:
         return "?"
 
-    def relative_date(self, amount: int, unit: str, anchor_sql: str | None = None) -> str:
+    def relative_date(self, n: int, unit: str, anchor_sql: str | None = None) -> str:
         # sqlite has no 'weeks' modifier -> convert to days
-        days = {"day": int(amount), "week": int(amount) * 7}.get(unit)
-        modifier = f"-{days} days" if days is not None else f"-{int(amount)} months"
+        days = {"day": int(n), "week": int(n) * 7}.get(unit)
+        modifier = f"-{days} days" if days is not None else f"-{int(n)} months"
         anchor = anchor_sql or "'now'"
         return f"date({anchor}, '{modifier}')"
 

@@ -18,10 +18,10 @@ class MysqlDialect(Dialect):
     def placeholder(self) -> str:
         return "%s"
 
-    def relative_date(self, amount: int, unit: str, anchor_sql: str | None = None) -> str:
+    def relative_date(self, n: int, unit: str, anchor_sql: str | None = None) -> str:
         anchor = anchor_sql if anchor_sql else "CURDATE()"
         # MySQL has native DAY/WEEK/MONTH intervals — no day-conversion needed.
-        return f"DATE_SUB({anchor}, INTERVAL {int(amount)} {unit.upper()})"
+        return f"DATE_SUB({anchor}, INTERVAL {int(n)} {unit.upper()})"
 
     def date_trunc(self, unit: str, col_sql: str) -> str:
         if unit == "week":  # ISO Monday: subtract WEEKDAY() (Mon=0)
