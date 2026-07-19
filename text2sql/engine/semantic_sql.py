@@ -157,13 +157,21 @@ def _detect_pivot(expr, dim_names, metric_names):
     if len(metrics) != 1 or len(fields) != 1:
         return None  # a pivot is ONE metric across ONE period field
 
-    filters, _time = _where(expr, dim_names)
+    # Fail loud on clauses a Comparison can't represent — never silently drop them.
+    # (A window/filter IS carried below; ORDER BY is canonicalized to the row bucket.)
+    if expr.args.get("having") is not None:
+        raise SemanticSqlError("HAVING is not supported in a period comparison")
+    if expr.args.get("limit") is not None:
+        raise SemanticSqlError("LIMIT is not supported in a period comparison")
+
+    filters, time = _where(expr, dim_names)  # carry the relative window, don't drop it
     return Comparison(
         metric=metrics.pop(),
         split_by=row_dims[0],
         period_field=fields.pop(),
         periods=[c[2] for c in cases],
         filters=filters,
+        time=time,
     )
 
 

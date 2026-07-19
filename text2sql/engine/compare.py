@@ -21,7 +21,7 @@ from ..semantic.model import SemanticModel
 from .compiler import CompileError
 from .compiler import compile as compile_ir
 from .dialects.base import Dialect
-from .ir import Filter, SemanticQuery
+from .ir import Filter, SemanticQuery, TimeWindow
 
 
 class CompareError(CompileError):
@@ -35,9 +35,22 @@ class Comparison:
     period_field: str  # dimension whose values become the compared columns (e.g. txn_year)
     periods: list  # the period values, one column each, e.g. [2025, 2026]
     filters: list[Filter] = field(default_factory=list)
+    # A relative time window (e.g. "the last 6 weeks"). Carried on the same node as the
+    # comparison so it is a single source of truth and can never be silently dropped;
+    # applied to the base aggregate and lowered per dialect (like SemanticQuery.time).
+    time: TimeWindow | None = None
 
     @classmethod
     def from_dict(cls, d: dict) -> "Comparison":
+        time = None
+        if d.get("time"):
+            t = d["time"]
+            time = TimeWindow(
+                field=t["field"],
+                last=int(t.get("last", t.get("last_n_days"))),
+                unit=t.get("unit", "day"),
+                anchor=t.get("anchor", "data"),
+            )
         return cls(
             metric=d["metric"],
             split_by=d["split_by"],
@@ -47,6 +60,7 @@ class Comparison:
                 Filter(f["field"], f["op"], f.get("value"))
                 for f in d.get("filters", [])
             ],
+            time=time,
         )
 
     def to_dict(self) -> dict:
@@ -60,6 +74,11 @@ class Comparison:
             out["filters"] = [
                 {"field": f.field, "op": f.op, "value": f.value} for f in self.filters
             ]
+        if self.time:
+            out["time"] = {
+                "field": self.time.field, "last": self.time.last,
+                "unit": self.time.unit, "anchor": self.time.anchor,
+            }
         return out
 
 
@@ -72,11 +91,13 @@ def compile_comparison(cmp: Comparison, model: SemanticModel, dialect: Dialect):
     qi = dialect.quote_ident
     ph = dialect.placeholder()
 
-    # Inner: metric grouped by (split_by, period_field), with the base filters.
+    # Inner: metric grouped by (split_by, period_field), with the base filters AND the
+    # relative time window — so "compare … over the last 6 weeks" is actually bounded.
     inner = SemanticQuery(
         metrics=[cmp.metric],
         dimensions=[cmp.split_by, cmp.period_field],
         filters=cmp.filters,
+        time=cmp.time,
     )
     inner_sql, inner_params = compile_ir(inner, model, dialect)
 
@@ -119,5 +140,7 @@ def validate_comparison(cmp: Comparison, model: SemanticModel) -> None:
     for f in cmp.filters:
         if not model.has_field(f.field):
             raise CompareError(f"unknown filter field: {f.field!r}")
+    if cmp.time and not model.has_field(cmp.time.field):
+        raise CompareError(f"unknown time field: {cmp.time.field!r}")
     if len(cmp.periods) < 2:
         raise CompareError("a comparison needs at least two periods")

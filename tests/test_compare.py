@@ -15,6 +15,8 @@ from text2sql.engine.compare import (
     validate_comparison,
 )
 from text2sql.engine.dialects.sqlite import SqliteDialect
+from text2sql.engine.executor import SqliteExecutor
+from text2sql.engine.semantic_sql import SemanticSqlError, compile_semantic_sql
 from text2sql.semantic.model import load_model
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -159,6 +161,54 @@ class TestPlannerSteering(unittest.TestCase):
 # `Comparison` plan type — the LLM now expresses them in semantic SQL. The pivot
 # compiler + Comparison struct are retained (compile_comparison above) for Phase-2
 # chart-side pivot rendering, but the engine only handles SemanticQuery.
+
+
+class TestComparisonTimeWindow(CompareCase):
+    """A relative time window in a comparison must be carried and applied — not
+    silently dropped (the 'compare revenue vs expense over the past 6 weeks' bug)."""
+
+    PIVOT = (
+        "SELECT week_start, "
+        "SUM(CASE WHEN classification = 'Revenue' THEN total_amount END) AS rev, "
+        "SUM(CASE WHEN classification = 'Expense' THEN total_amount END) AS exp "
+        "FROM qbo_finance {where} GROUP BY week_start ORDER BY week_start"
+    )
+
+    def _run(self, sql):
+        csql, params, plan = compile_semantic_sql(sql, self.model, self.dialect)
+        _, rows = SqliteExecutor(self.db).run(csql, params)
+        return plan, rows
+
+    def test_window_is_carried_and_applied(self):
+        plan, rows = self._run(
+            self.PIVOT.format(where="WHERE week_start >= last_period(6, 'week')"))
+        self.assertIsInstance(plan, Comparison)
+        self.assertIsNotNone(plan.time)                 # carried, not dropped
+        self.assertEqual(plan.time.field, "week_start")
+        _, all_rows = self._run(self.PIVOT.format(where=""))  # no window -> full range
+        self.assertLessEqual(len(rows), 8)              # bounded to ~recent weeks
+        self.assertGreater(len(all_rows), 50)           # vs the full ~104-week range
+
+    def test_window_round_trips_through_to_dict(self):
+        plan, _ = self._run(
+            self.PIVOT.format(where="WHERE week_start >= last_period(6, 'week')"))
+        back = Comparison.from_dict(plan.to_dict())     # survives memory serialization
+        self.assertIsNotNone(back.time)
+        self.assertEqual((back.time.field, back.time.last, back.time.unit),
+                         ("week_start", 6, "week"))
+
+    def test_having_or_limit_on_a_pivot_fails_loud(self):
+        # clauses a Comparison can't represent must raise (repair loop), not vanish.
+        with self.assertRaises(SemanticSqlError):
+            compile_semantic_sql(
+                "SELECT week_start, "
+                "SUM(CASE WHEN classification='Revenue' THEN total_amount END) AS rev, "
+                "SUM(CASE WHEN classification='Expense' THEN total_amount END) AS exp "
+                "FROM qbo_finance GROUP BY week_start HAVING rev > 0",
+                self.model, self.dialect)
+        with self.assertRaises(SemanticSqlError):
+            compile_semantic_sql(self.PIVOT.format(where="") + " LIMIT 5",
+                                 self.model, self.dialect)
 
 
 if __name__ == "__main__":
