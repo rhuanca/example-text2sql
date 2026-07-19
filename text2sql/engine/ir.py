@@ -1,9 +1,10 @@
 """Semantic Query IR.
 
-The IR is the structured object the Query Planner (LLM) produces and the SQL
-Compiler consumes. The planner never writes SQL; it only selects metrics,
-group-by dimensions, filters, a time window, ordering, and a limit. Everything
-downstream is deterministic.
+The IR is the normalized, structured form the semantic-SQL front-end produces —
+by parsing and validating the LLM's SQL against the model (`semantic_sql.py`) —
+and the SQL Compiler consumes. So the LLM authors SQL over the virtual model
+table (metrics, dimensions, filters, a time window, ordering, a limit); that SQL
+is lowered into this IR, and everything from the IR down is deterministic.
 """
 
 from __future__ import annotations

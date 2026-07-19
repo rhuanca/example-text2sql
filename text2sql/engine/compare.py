@@ -1,11 +1,12 @@
-"""Period comparison: a structured request the planner emits (never SQL) that a
-deterministic template turns into a *wide* pivot — one column per compared period.
+"""Period comparison: a structured plan detected from a CASE-pivot the LLM writes
+in semantic SQL, which a deterministic template turns into a *wide* pivot — one
+column per compared period.
 
 This is intentionally NOT part of the SemanticQuery IR or the semantic model. It
-is an engine step: the LLM picks a metric, a row bucket, a period field, and the
-period values; the compiler here aggregates *long* (reusing the normal compiler)
-and pivots it into columns. So "compare revenue for Jan–Mar between 2025 and 2026"
-becomes:
+is an engine step: from the LLM's `SUM(CASE WHEN <period> = <v> THEN <metric> END)`
+pivot the front-end recovers a metric, a row bucket, a period field, and the period
+values; the compiler here aggregates *long* (reusing the normal compiler) and pivots
+it into columns. So "compare revenue for Jan–Mar between 2025 and 2026" becomes:
 
     month | total_amount_2025 | total_amount_2026
 
