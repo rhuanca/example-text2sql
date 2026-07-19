@@ -223,6 +223,7 @@ class TestAppHelpers(unittest.TestCase):
 
     def test_month_label(self):
         self.assertEqual(plots.month_label("2026-04"), "Apr 2026")   # calendar month
+        self.assertEqual(plots.month_label("2026-04-01"), "Apr 2026")  # date_trunc form
         self.assertEqual(plots.month_label("2026-12"), "Dec 2026")
         self.assertEqual(plots.month_label(4), "Apr")                # month-of-year
         self.assertEqual(plots.month_label("7"), "Jul")

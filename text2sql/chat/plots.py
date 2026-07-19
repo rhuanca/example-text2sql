@@ -56,11 +56,13 @@ _MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
 
 
 def month_label(value):
-    """Friendly label for a month dimension value. A calendar month `"2026-04"`
-    (from a derived `substr(date,1,7)` dim) becomes `"Apr 2026"`; a bare
-    month-of-year `4` / `"4"` becomes `"Apr"` (no year — it spans years). Anything
-    else (a year like `2026`, a week number, a non-month value) passes through."""
+    """Friendly label for a month dimension value. A calendar month — `"2026-04"` or
+    the date-trunc form `"2026-04-01"` — becomes `"Apr 2026"`; a bare month-of-year
+    `4` / `"4"` becomes `"Apr"` (no year — it spans years). Anything else (a year like
+    `2026`, a week number, a non-month value) passes through."""
     s = str(value).strip()
+    if len(s) == 10 and s[7:] == "-01":   # date_trunc('month') -> YYYY-MM-01
+        s = s[:7]
     if len(s) == 7 and s[4] == "-" and s[:4].isdigit() and s[5:].isdigit():
         mm = int(s[5:])
         if 1 <= mm <= 12:

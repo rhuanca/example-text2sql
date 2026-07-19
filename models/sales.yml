@@ -41,19 +41,17 @@ dimensions:
       sample_values: ["At Shop", "Online"] }
   - { table: fact_sales, name: date, column: date, type: date,
       synonyms: [business date, transaction date, day] }
-  - { table: fact_sales, name: month, expr: "substr(date, 1, 7)", type: month,
-      description: "Calendar month as YYYY-MM (one bucket per month per year).",
+  - { table: fact_sales, name: month, column: date, grain: month, type: month,
+      description: "Calendar month (one bucket per month per year).",
       synonyms: [month, calendar month, year month],
-      sample_values: ["2026-07", "2026-08"] }
-  - { table: fact_sales, name: month_of_year, expr: "CAST(substr(date, 6, 2) AS INTEGER)",
-      type: month,
+      sample_values: ["2026-07-01", "2026-08-01"] }
+  - { table: fact_sales, name: month_of_year, column: date, part: month, type: month,
       description: "Month of year 1-12, year-agnostic — compare the same month across years (e.g. Jan 2025 vs Jan 2026).",
       synonyms: [month number, month of year, seasonal month],
       sample_values: [1, 2, 12] }
   # start date (ISO Monday) of the week — the chronological weekly bucket for
   # trends and week-over-week; carries the year, so it never collides across years.
-  - { table: fact_sales, name: week_start, expr: "date(date, '-6 days', 'weekday 1')",
-      type: date,
+  - { table: fact_sales, name: week_start, column: date, grain: week, type: date,
       description: "Start date (Monday) of the ISO week — the weekly bucket for trends and week-over-week.",
       synonyms: [week, week starting, week over week, weekly, week start],
       sample_values: ["2026-11-09", "2026-11-16"] }

@@ -42,6 +42,18 @@ class TestPostgresSeam(unittest.TestCase):
         self.assertIn("INTERVAL '30 days'", sql)
         self.assertIn('MAX("date")', sql)  # data-anchored window
 
+    def test_time_grains_compile_to_postgres(self):
+        # structured time dims lower through the dialect (date_trunc / EXTRACT),
+        # not the SQLite date() strings that used to be baked into the model.
+        for dim, needle in [("month", "date_trunc('month'"),
+                            ("week_start", "date_trunc('week'"),
+                            ("month_of_year", "EXTRACT(month FROM")]:
+            ir = SemanticQuery.from_dict({"metrics": ["total_net_sales"], "dimensions": [dim]})
+            sql, _ = compile(ir, self.model, PostgresDialect())
+            self.assertIn(needle, sql, dim)
+            self.assertNotIn("substr(", sql)          # no SQLite string ops
+            self.assertNotIn("weekday 1", sql)
+
     def test_same_ir_differs_only_by_dialect(self):
         ir = SemanticQuery.from_dict(
             {

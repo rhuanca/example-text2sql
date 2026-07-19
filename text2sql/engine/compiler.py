@@ -194,9 +194,16 @@ def _field_table(model: SemanticModel, field_name: str) -> str:
 
 
 def _col_sql(model, d, dialect, qualify: bool = True) -> str:
-    """SQL for a dimension/fact reference: its `expr` if it is a derived dimension,
-    else the (optionally table-qualified) physical column."""
+    """SQL for a dimension/fact reference. A portable time derivation (`grain`/`part`
+    over the source `column`) is compiled through the dialect; a raw `expr` is emitted
+    verbatim (dialect-specific escape hatch); otherwise the physical column."""
     qi = dialect.quote_ident
+    grain = getattr(d, "grain", None)
+    part = getattr(d, "part", None)
+    if grain or part:
+        col = (f"{qi(model.table(d.table).table)}.{qi(d.column)}" if qualify
+               else qi(d.column))
+        return dialect.date_trunc(grain, col) if grain else dialect.date_part(part, col)
     expr = getattr(d, "expr", None)
     if expr:
         return f"({expr})"
@@ -258,7 +265,9 @@ def _where_for_base(ir, model, dialect, base, key_cols):
         d = model.dimension(ir.time.field)
         if d.column in base_cols or ir.time.field in key_names:
             tbl = qi(model.table(d.table).table)
-            clauses.append(_time_clause(ir.time, qi(d.column), tbl, qi(d.column), dialect))
+            colexpr = _col_sql(model, d, dialect, qualify=False)  # grain/derived-aware
+            anchor_col = colexpr
+            clauses.append(_time_clause(ir.time, anchor_col, tbl, colexpr, dialect))
 
     return " AND ".join(clauses), params
 

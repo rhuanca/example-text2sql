@@ -59,16 +59,15 @@ dimensions:
   - { table: txn, name: txn_month, column: Month, type: month,
       description: "Numeric month of year 1-12, year-agnostic — for comparing the same month across years (e.g. Jan across 2025 and 2026).",
       synonyms: [month number, month of year] }
-  - { table: txn, name: month, expr: "substr(Date, 1, 7)", type: month,
-      description: "Calendar month as YYYY-MM (one bucket per month per year).",
+  - { table: txn, name: month, column: Date, grain: month, type: month,
+      description: "Calendar month (one bucket per month per year).",
       synonyms: [month, calendar month, year month, monthly],
-      sample_values: ["2026-01", "2026-02"] }
+      sample_values: ["2026-01-01", "2026-02-01"] }
   - { table: txn, name: txn_quarter, column: Quarter, type: quarter,
       synonyms: [quarter, qtr] }
   # start date (ISO Monday) of the week — the chronological weekly bucket for
   # trends and week-over-week; carries the year, so it never collides across years.
-  - { table: txn, name: week_start, expr: "date(Date, '-6 days', 'weekday 1')",
-      type: date,
+  - { table: txn, name: week_start, column: Date, grain: week, type: date,
       description: "Start date (Monday) of the ISO week — the weekly bucket for trends and week-over-week.",
       synonyms: [week, week starting, week over week, weekly, week start],
       sample_values: ["2026-11-09", "2026-11-16"] }
@@ -122,10 +121,10 @@ dimensions:
       synonyms: [invoice year] }
   - { table: invoices, name: invoice_month, column: Month, type: month,
       synonyms: [invoice month number, invoice month of year] }
-  - { table: invoices, name: invoice_period, expr: "substr(Date, 1, 7)", type: month,
-      description: "Calendar month as YYYY-MM for invoices.",
+  - { table: invoices, name: invoice_period, column: Date, grain: month, type: month,
+      description: "Calendar month for invoices.",
       synonyms: [invoice month, invoice calendar month, invoice period],
-      sample_values: ["2026-01", "2026-02"] }
+      sample_values: ["2026-01-01", "2026-02-01"] }
   - { table: invoices, name: item, column: SalesItemLineDetail_ItemRef_name,
       synonyms: [item, product, sku],
       sample_values: ["Espresso Beans", "Cold Brew Kit", "Mug"] }

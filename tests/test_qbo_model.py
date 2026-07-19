@@ -79,8 +79,8 @@ class TestModel(QboCase):
 
         m = self.model.dimension("month")
         self.assertEqual(m.type, "month")
-        self.assertTrue(m.expr)          # derived expression
-        self.assertIsNone(m.column)      # not a bare physical column
+        self.assertEqual(m.grain, "month")   # portable grain, compiled per dialect
+        self.assertEqual(m.column, "Date")   # source date column
         sql, params, _ = compile_semantic_sql(
             "SELECT month, total_amount FROM qbo_finance GROUP BY month ORDER BY month",
             self.model, self.dialect,
@@ -91,7 +91,7 @@ class TestModel(QboCase):
         finally:
             conn.close()
         self.assertTrue(rows)
-        self.assertTrue(all(re.match(r"^\d{4}-\d{2}$", r[0]) for r in rows))
+        self.assertTrue(all(re.match(r"^\d{4}-\d{2}-01$", r[0]) for r in rows))  # first-of-month
         self.assertEqual([r[0] for r in rows], sorted(r[0] for r in rows))  # chronological
 
     def test_week_start_labels_weeks_by_date(self):
@@ -102,7 +102,7 @@ class TestModel(QboCase):
 
         d = self.model.dimension("week_start")
         self.assertEqual(d.type, "date")
-        self.assertTrue(d.expr)
+        self.assertEqual(d.grain, "week")   # portable grain, compiled per dialect
         sql, params, _ = compile_semantic_sql(
             "SELECT week_start, total_amount FROM qbo_finance "
             "WHERE classification = 'Revenue' AND week_start >= last_period(6, 'week') "

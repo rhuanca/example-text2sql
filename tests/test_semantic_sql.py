@@ -249,10 +249,10 @@ class TestEndToEnd(SqlCase):
             "GROUP BY month ORDER BY month",
             self.model, self.dialect,
         )
-        self.assertIn("substr(date, 1, 7)", sql)  # derived expr, not a column
+        self.assertIn("start of month", sql)  # dialect date_trunc('month'), not a column
         _, rows = SqliteExecutor(self.db).run(sql, params)
-        # grouped by calendar month (YYYY-MM): 24 months over two years, not ~104 weeks
-        self.assertTrue(all(len(r[0]) == 7 and r[0][4] == "-" for r in rows))
+        # grouped by calendar month (first-of-month date): 24 months, not ~104 weeks
+        self.assertTrue(all(r[0].endswith("-01") and len(r[0]) == 10 for r in rows))
         self.assertEqual(len(rows), 24)
 
     def test_engine_runs_a_window_query(self):
@@ -303,7 +303,7 @@ class TestEndToEnd(SqlCase):
         import re
         d = self.model.dimension("week_start")
         self.assertEqual(d.type, "date")
-        self.assertTrue(d.expr)  # derived from the date column
+        self.assertEqual(d.grain, "week")  # portable grain, compiled per dialect
         sql, params, _ = compile_semantic_sql(
             "SELECT week_start, total_net_sales FROM product_sales "
             "WHERE product_name = 'Cappuccino' AND date >= last_period(6, 'week') "
@@ -339,7 +339,7 @@ class TestEndToEnd(SqlCase):
         _, rows = SqliteExecutor(self.db).run(sql, params)
         months = [r[0] for r in rows]
         self.assertLessEqual(len(months), 4)  # ~3 calendar months, not all 24
-        self.assertEqual(max(months), "2026-12")  # anchored at the latest data
+        self.assertEqual(max(months), "2026-12-01")  # anchored at the latest data
 
 
 if __name__ == "__main__":

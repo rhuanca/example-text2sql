@@ -56,9 +56,14 @@ class Dimension:
     type: str = "text"
     synonyms: list[str] = field(default_factory=list)
     sample_values: list = field(default_factory=list)
-    # A derived dimension: a SQL expression over the table's columns instead of a
-    # bare column, e.g. month = substr(date, 1, 7). Referenced unqualified (like a
-    # metric's sql), so its columns must be unambiguous across the query's joins.
+    # A portable time derivation over `column` (the source date column), compiled per
+    # dialect: `grain` truncates to a bucket (day|week|month|quarter|year -> a date;
+    # week = ISO Monday), `part` extracts an int (month|year|quarter|dow|day, e.g. a
+    # year-agnostic month-of-year 1-12). Prefer these over `expr` for time buckets.
+    grain: str | None = None
+    part: str | None = None
+    # An arbitrary SQL expression escape hatch (dialect-specific, NOT portable — use
+    # grain/part for time). e.g. a bespoke derivation over the table's columns.
     expr: str | None = None
     # Whether this dimension's values partition a measure into parts that SUM to a
     # meaningful whole (True -> stackable, e.g. account) vs. contrasting facts that
@@ -249,6 +254,8 @@ def build_model(data: dict) -> SemanticModel:
             type=d.get("type", "text"),
             synonyms=list(d.get("synonyms", [])),
             sample_values=list(d.get("sample_values", [])),
+            grain=d.get("grain"),
+            part=d.get("part"),
             expr=d.get("expr"),
             additive=d.get("additive", True),
         )
