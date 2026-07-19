@@ -412,6 +412,15 @@ class TestAppHelpers(unittest.TestCase):
         q = "compare revenue and expenses broken down by account and split by month"
         self.assertEqual(app.missing_dimensions(q, ir, model), ["account_name"])
 
+    def test_missing_dimensions_matches_across_punctuation(self):
+        # "account," (comma-adjacent) must still match the account dimension
+        model = SimpleNamespace(dimensions=[
+            SimpleNamespace(name="account_name", synonyms=["account"]),
+        ])
+        ir = SimpleNamespace(dimensions=["week_start", "classification"])
+        q = "side-by-side comparison, broken down by account, including the % of change."
+        self.assertEqual(app.missing_dimensions(q, ir, model), ["account_name"])
+
     def test_missing_dimensions_none_when_present_or_unmentioned(self):
         model = SimpleNamespace(dimensions=[
             SimpleNamespace(name="account_name", synonyms=["account"]),

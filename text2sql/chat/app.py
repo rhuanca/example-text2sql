@@ -12,6 +12,7 @@ decide-with-choose_chart, build-with-plots, and place with st.*.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import time
 import uuid
@@ -96,6 +97,13 @@ DEFAULT_DATASET = "sales"
 
 
 # ---- honesty: flag a requested breakdown the result doesn't actually contain -----
+def _word_tokens(s: str) -> str:
+    """Lowercased words separated (and padded) by single spaces, punctuation dropped —
+    so a term matches on word boundaries regardless of adjacent commas/periods
+    (`"account,"` still matches `"account"`)."""
+    return " " + " ".join(re.findall(r"[a-z0-9]+", s.lower())) + " "
+
+
 def _result_dimensions(ir) -> set:
     """The dimension names actually present in a result's plan."""
     if hasattr(ir, "period_field"):  # a period Comparison
@@ -110,7 +118,7 @@ def missing_dimensions(question: str, ir, model) -> list:
     if not question:
         return []
     present = _result_dimensions(ir)
-    text = f" {question.lower()} "
+    text = _word_tokens(question)  # space-delimited words, punctuation stripped
     out = []
     for d in model.dimensions:
         if d.name in present:
@@ -120,7 +128,7 @@ def missing_dimensions(question: str, ir, model) -> list:
         if getattr(d, "type", "text") in TIME_TYPES:
             continue
         terms = [d.name.replace("_", " ")] + list(d.synonyms or [])
-        if any(f" {t.lower()} " in text for t in terms if t):
+        if any(_word_tokens(t).strip() and _word_tokens(t) in text for t in terms):
             out.append(d.name)
     return out
 
