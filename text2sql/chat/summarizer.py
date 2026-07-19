@@ -7,7 +7,11 @@ MockSummarizer for tests, and AnthropicSummarizer for the real app.
 
 from __future__ import annotations
 
+import os
+import time
 from typing import Protocol
+
+from ..trace import usage
 
 _SYSTEM = (
     "You summarize SQL query results for a business user in 1-2 short sentences. "
@@ -57,15 +61,23 @@ class AnthropicSummarizer:
             import anthropic
 
             client = anthropic.Anthropic(api_key=key)
+            # Optional LangSmith tracing (no-op unless LANGSMITH_TRACING is set),
+            # matching the planner/rewriter so all three calls land in the trace.
+            if os.environ.get("LANGSMITH_TRACING", "").lower() in ("1", "true"):
+                from langsmith.wrappers import wrap_anthropic
+
+                client = wrap_anthropic(client)
         self.client = client
 
     def summarize(self, question, columns, rows) -> str:
         prompt = build_summary_prompt(question, columns, rows, self.max_rows)
+        t0 = time.monotonic()
         resp = self.client.messages.create(
             model=self.model,
             max_tokens=self.max_tokens,
             system=_SYSTEM,
             messages=[{"role": "user", "content": prompt}],
         )
+        usage.record_usage("summary", self.model, resp, (time.monotonic() - t0) * 1000)
         parts = [b.text for b in resp.content if getattr(b, "type", None) == "text"]
         return "".join(parts).strip()

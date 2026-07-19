@@ -13,7 +13,10 @@ scope is visible and reversible.
 from __future__ import annotations
 
 import os
+import time
 from typing import Protocol
+
+from ..trace import usage
 
 _SYSTEM = (
     "You rewrite a user's latest question into a STANDALONE question for a SQL "
@@ -98,6 +101,7 @@ class AnthropicRewriter:
     def rewrite(self, question: str, history: list) -> str:
         if not history:
             return question  # nothing to carry — skip the call
+        t0 = time.monotonic()
         resp = self.client.messages.create(
             model=self.model,
             max_tokens=self.max_tokens,
@@ -106,6 +110,7 @@ class AnthropicRewriter:
             tool_choice={"type": "tool", "name": "emit_question"},
             messages=[{"role": "user", "content": build_rewrite_prompt(question, history)}],
         )
+        usage.record_usage("rewrite", self.model, resp, (time.monotonic() - t0) * 1000)
         for block in resp.content:
             if getattr(block, "type", None) == "tool_use" and block.name == "emit_question":
                 return block.input["question"].strip() or question

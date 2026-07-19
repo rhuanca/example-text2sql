@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from typing import Protocol
 
 from ..semantic.model import SemanticModel
+from ..trace import usage
 
 
 class PlannerError(Exception):
@@ -214,6 +216,7 @@ class AnthropicPlanner:
             )
         if history:
             content = f"{_history_block(history)}\n\nCurrent question: {content}"
+        t0 = time.monotonic()
         resp = self.client.messages.create(
             model=self.model,
             max_tokens=self.max_tokens,
@@ -228,6 +231,7 @@ class AnthropicPlanner:
             tool_choice={"type": "tool", "name": "emit_sql"},
             messages=[{"role": "user", "content": content}],
         )
+        usage.record_usage("plan", self.model, resp, (time.monotonic() - t0) * 1000)
         for block in resp.content:
             if getattr(block, "type", None) == "tool_use" and block.name == "emit_sql":
                 return block.input["sql"]
