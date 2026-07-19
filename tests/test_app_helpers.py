@@ -402,6 +402,51 @@ class TestAppHelpers(unittest.TestCase):
                          {"month": "month"}, None)
         self.assertEqual(st.charts, ["bar_chart"])
 
+    def test_missing_dimensions_flags_dropped_breakdown(self):
+        model = SimpleNamespace(dimensions=[
+            SimpleNamespace(name="account_name", synonyms=["account"]),
+            SimpleNamespace(name="month", synonyms=["month"]),
+            SimpleNamespace(name="classification", synonyms=["type"]),
+        ])
+        ir = SimpleNamespace(dimensions=["month", "classification"])  # account dropped
+        q = "compare revenue and expenses broken down by account and split by month"
+        self.assertEqual(app.missing_dimensions(q, ir, model), ["account_name"])
+
+    def test_missing_dimensions_none_when_present_or_unmentioned(self):
+        model = SimpleNamespace(dimensions=[
+            SimpleNamespace(name="account_name", synonyms=["account"]),
+            SimpleNamespace(name="month", synonyms=["month"]),
+        ])
+        # account is present in the result -> not flagged
+        ir = SimpleNamespace(dimensions=["account_name", "month"])
+        self.assertEqual(app.missing_dimensions("revenue by account by month", ir, model), [])
+        # account not mentioned -> not flagged (whole-word, no "accounting" false match)
+        ir2 = SimpleNamespace(dimensions=["month"])
+        self.assertEqual(app.missing_dimensions("revenue by month", ir2, model), [])
+
+    def test_missing_dimensions_skips_time_grains(self):
+        # "by month" must not flag the "month" dim as missing when another time grain
+        # is present — the planner picks one grain, that's not a dropped breakdown.
+        model = SimpleNamespace(dimensions=[
+            SimpleNamespace(name="month", synonyms=["month"], type="month"),
+            SimpleNamespace(name="txn_month", synonyms=[], type="month"),
+        ])
+        ir = SimpleNamespace(dimensions=["txn_month"])
+        self.assertEqual(app.missing_dimensions("revenue by month", ir, model), [])
+
+    def test_missing_dimensions_reads_comparison_ir(self):
+        model = SimpleNamespace(dimensions=[
+            SimpleNamespace(name="account_name", synonyms=["account"]),
+            SimpleNamespace(name="month", synonyms=[]),
+            SimpleNamespace(name="classification", synonyms=[]),
+        ])
+        cmp = Comparison.from_dict({"metric": "total_amount", "split_by": "month",
+                                    "period_field": "classification",
+                                    "periods": ["Revenue", "Expense"]})
+        # present dims for a Comparison = {split_by, period_field}; account is missing
+        self.assertEqual(app.missing_dimensions("compare by account", cmp, model),
+                         ["account_name"])
+
     def test_reset_session_clears_history_and_remints_thread(self):
         state = {"history": [{"role": "user", "text": "hi"}], "thread_id": "old-thread",
                  "dataset": "sales"}

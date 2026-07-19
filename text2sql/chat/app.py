@@ -35,7 +35,7 @@ from text2sql.engine.executor import SqliteExecutor
 from text2sql.engine.planner import AnthropicPlanner, PlannerError
 from text2sql.engine.rewriter import AnthropicRewriter
 from text2sql.semantic.model import load_model
-from text2sql.chat.charts import choose_chart, compatible_charts
+from text2sql.chat.charts import TIME_TYPES, choose_chart, compatible_charts
 from text2sql.chat.story import choose_story
 from text2sql.chat.model_map import model_to_dot, table_fields
 from text2sql.chat.plots import (
@@ -93,6 +93,36 @@ DATASETS = {
     ),
 }
 DEFAULT_DATASET = "sales"
+
+
+# ---- honesty: flag a requested breakdown the result doesn't actually contain -----
+def _result_dimensions(ir) -> set:
+    """The dimension names actually present in a result's plan."""
+    if hasattr(ir, "period_field"):  # a period Comparison
+        return {ir.split_by, ir.period_field}
+    return set(getattr(ir, "dimensions", []) or [])
+
+
+def missing_dimensions(question: str, ir, model) -> list:
+    """Model dimensions the question asked for (by name or a synonym, whole-word) that
+    the answered result does NOT include — so the UI can flag a silently dropped
+    breakdown instead of the 'Interpreted as' line over-promising. Pure/testable."""
+    if not question:
+        return []
+    present = _result_dimensions(ir)
+    text = f" {question.lower()} "
+    out = []
+    for d in model.dimensions:
+        if d.name in present:
+            continue
+        # skip time dimensions: the planner picks one grain, so a missing "month" when
+        # "txn_month" is present isn't a dropped breakdown (avoids that false positive).
+        if getattr(d, "type", "text") in TIME_TYPES:
+            continue
+        terms = [d.name.replace("_", " ")] + list(d.synonyms or [])
+        if any(f" {t.lower()} " in text for t in terms if t):
+            out.append(d.name)
+    return out
 
 
 # ---- planner memory helper ------------------------------------------------
@@ -287,6 +317,10 @@ def _render_assistant(st, payload, units=None, additive=None, types=None):
     if getattr(result, "rewritten", None):
         # scope carried from earlier turns — show it so it's transparent + reversible
         st.caption(f"Interpreted as: {result.rewritten}")
+    missing = payload.get("missing_dims")
+    if missing:  # a requested breakdown the result didn't actually include — be honest
+        names = ", ".join(_pretty(d) for d in missing)
+        st.caption(f"⚠️ This view isn't broken down by {names} — ask again to add it.")
     st.markdown(_md_safe(payload["summary"]))
 
     spec = choose_chart(result.ir, result.columns, result.rows,
@@ -449,7 +483,9 @@ def main():
                         summary = safe_summarize(
                             summarizer, prompt, result.columns, result.rows
                         )
-                    payload = {"role": "assistant", "result": result, "summary": summary}
+                    payload = {"role": "assistant", "result": result, "summary": summary,
+                               "missing_dims": missing_dimensions(
+                                   result.rewritten or prompt, result.ir, model)}
                 except EngineError as e:
                     payload = {"role": "assistant", "error": f"Sorry — I couldn't answer that: {e}"}
             latency_ms = (time.monotonic() - t0) * 1000
