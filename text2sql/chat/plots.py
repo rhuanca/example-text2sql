@@ -289,9 +289,13 @@ def horizontal_bar(df: pd.DataFrame, category: str, metric: str, sort="-x", fmt=
         scale=alt.Scale(paddingInner=0.2, paddingOuter=0.2),  # air between bars
         axis=alt.Axis(labelColor=INK_SECONDARY, domainColor=AXIS_LINE, ticks=False),
     )
-    # Direct labels carry the values, so the x-axis is hidden (dataviz rule:
-    # direct labels before gridlines).
-    x = alt.X(f"{metric}:Q", title=None, axis=None)
+    # All-positive bars carry direct value labels and hide the x-axis (dataviz rule:
+    # direct labels before gridlines). A signed metric (net income) diverges around
+    # zero, where direct labels collide with the bar / category labels — so it gets a
+    # formatted x-axis + zero rule instead, and no direct labels.
+    signed = bool((df[metric] < 0).any())
+    x = alt.X(f"{metric}:Q", title=None,
+              axis=alt.Axis(format=fmt, labelColor=INK_MUTED, grid=False) if signed else None)
     base = alt.Chart(df)
     # Emphasis: colour the story's focus (the leader) and grey the rest; or grey a
     # single muted category (the long-tail "Other" bucket) while the rest stay blue.
@@ -315,13 +319,14 @@ def horizontal_bar(df: pd.DataFrame, category: str, metric: str, sort="-x", fmt=
             alt.Tooltip(f"{metric}:Q", title=_pretty(metric), format=fmt),
         ],
     )
-    labels = base.mark_text(align="left", dx=4, color=INK_SECONDARY).encode(
-        x=x, y=y, text=alt.Text(f"{metric}:Q", format=fmt)
-    )
+    if signed:  # diverging: a zero baseline for reference, values read from the axis
+        content = base.mark_rule(color=AXIS_LINE).encode(x=alt.datum(0)) + bars
+    else:  # direct value labels just past each bar tip
+        content = bars + base.mark_text(align="left", dx=4, color=INK_SECONDARY).encode(
+            x=x, y=y, text=alt.Text(f"{metric}:Q", format=fmt))
     # Fixed 30px band per category (bar ~24px after padding) so bars stay a
     # readable thickness no matter the container width or number of rows.
-    return _titled(
-        (bars + labels).properties(height=alt.Step(30)), story)
+    return _titled(content.properties(height=alt.Step(30)), story)
 
 
 def grouped_bar(df: pd.DataFrame, category: str, metrics: list[str], fmt=","):

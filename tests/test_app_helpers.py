@@ -432,6 +432,21 @@ class TestAppHelpers(unittest.TestCase):
         self.assertIsNone(captured["sql"])
         self.assertIsNone(captured["chart_kind"])
 
+    def test_horizontal_bar_signed_metric_uses_axis_and_zero_rule(self):
+        df = app.to_frame(["classification", "net_income"],
+                          [("Revenue", 3386572.8), ("Expense", -2709258.24)])
+        spec = plots.horizontal_bar(df, "classification", "net_income", fmt="$,.2f").to_dict()
+        marks = _marks(spec)
+        self.assertIn("rule", marks)      # a zero baseline for the diverging bars
+        self.assertNotIn("text", marks)   # no direct labels (they'd overlap a diverging bar)
+        bar = next(lyr for lyr in spec["layer"]
+                   if (lyr["mark"]["type"] if isinstance(lyr["mark"], dict) else lyr["mark"]) == "bar")
+        self.assertEqual(bar["encoding"]["x"]["axis"]["format"], "$,.2f")  # values via the axis
+
+    def test_horizontal_bar_positive_keeps_direct_labels(self):
+        df = app.to_frame(["p", "v"], [("A", 5.0), ("B", 3.0)])
+        self.assertEqual(_marks(plots.horizontal_bar(df, "p", "v").to_dict()), {"bar", "text"})
+
     def test_horizontal_bar_story_titles_and_greys_non_focus(self):
         from text2sql.chat.story import StorySpec
         df = app.to_frame(["product_name", "units_sold"],
