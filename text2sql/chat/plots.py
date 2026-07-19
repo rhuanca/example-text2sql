@@ -319,7 +319,7 @@ def horizontal_bar(df: pd.DataFrame, category: str, metric: str, sort="-x", fmt=
     # Fixed 30px band per category (bar ~24px after padding) so bars stay a
     # readable thickness no matter the container width or number of rows.
     return _titled(
-        (bars + labels).properties(height=alt.Step(30)).configure_view(strokeWidth=0), story)
+        (bars + labels).properties(height=alt.Step(30)), story)
 
 
 def grouped_bar(df: pd.DataFrame, category: str, metrics: list[str], fmt=","):
@@ -417,7 +417,7 @@ def comparison_grouped_bar(long: pd.DataFrame, category: str, period_field: str,
             ],
         )
         .properties(height=alt.Step(16))
-        .configure_view(strokeWidth=0), story)
+        , story)
 
 
 def vertical_grouped_bar(long: pd.DataFrame, category: str, period_field: str,
@@ -453,7 +453,7 @@ def vertical_grouped_bar(long: pd.DataFrame, category: str, period_field: str,
             ],
         )
         .properties(height=340)
-        .configure_view(strokeWidth=0), story)
+        , story)
 
 
 def line_chart(df: pd.DataFrame, x: str, value: str, color: str | None = None, fmt=",",
@@ -487,7 +487,7 @@ def line_chart(df: pd.DataFrame, x: str, value: str, color: str | None = None, f
         chart = alt.layer(*_ref_layers(story), line, *_ann_layers(story, x, value, xsort))
     else:
         chart = line
-    return _titled(chart.properties(height=320).configure_view(strokeWidth=0), story)
+    return _titled(chart.properties(height=320), story)
 
 
 def line_panel(df: pd.DataFrame, x: str, metric: str, percent: bool = False,
@@ -510,3 +510,86 @@ def line_panel(df: pd.DataFrame, x: str, metric: str, percent: bool = False,
         zero = alt.Chart(df).mark_rule(color=AXIS_LINE).encode(y=alt.datum(0))
         chart = zero + line
     return chart.properties(height=180)
+
+
+def area_chart(df: pd.DataFrame, x: str, value: str, color: str | None = None, fmt=",",
+               x_type: str | None = None, story=None):
+    """A filled time-series area (a line's sibling, emphasizing magnitude/volume):
+    a single blue area anchored at zero with a solid top line and the story overlays,
+    or a stacked area per `color` category. Chosen via the chart-type switcher for a
+    time-series shape (the default stays a line)."""
+    import altair as alt
+
+    df, xsort = _month_axis(df, x, x_type)
+    tooltip = [alt.Tooltip(f"{x}:O")]
+    if color:
+        tooltip.append(alt.Tooltip(f"{color}:N", title=color.replace("_", " ")))
+    tooltip.append(alt.Tooltip(f"{value}:Q", format=fmt))
+    enc = {
+        "x": alt.X(f"{x}:O", title=x.replace("_", " "), sort=xsort,
+                   axis=alt.Axis(labelColor=INK_SECONDARY)),
+        "y": alt.Y(f"{value}:Q", title=None, stack="zero" if color else None,
+                   axis=alt.Axis(format=fmt, labelColor=INK_MUTED)),
+        "tooltip": tooltip,
+    }
+    if color:
+        enc["color"] = alt.Color(f"{color}:N", title=None,
+                                 scale=alt.Scale(range=PALETTE),
+                                 legend=alt.Legend(orient="top"))
+        return _titled(alt.Chart(df).mark_area(opacity=0.85).encode(**enc)
+                       .properties(height=320), story)
+    area = alt.Chart(df).mark_area(
+        line={"color": SERIES_1}, color=SERIES_1, opacity=0.25).encode(**enc)
+    if story is not None:  # same reference/callout overlays as the line
+        area = alt.layer(*_ref_layers(story), area, *_ann_layers(story, x, value, xsort))
+    return _titled(area.properties(height=320), story)
+
+
+def scatter_chart(df: pd.DataFrame, x_metric: str, y_metric: str, label: str | None = None,
+                  fmt_x=",", fmt_y=","):
+    """A scatter for two-measure correlation: each point is a `label` category placed
+    by (`x_metric`, `y_metric`). Points carry a full tooltip; neither axis is zeroed so
+    the cloud fills the frame."""
+    import altair as alt
+
+    tooltip = []
+    if label:
+        tooltip.append(alt.Tooltip(f"{label}:N", title=label.replace("_", " ")))
+    tooltip += [alt.Tooltip(f"{x_metric}:Q", title=x_metric.replace("_", " "), format=fmt_x),
+                alt.Tooltip(f"{y_metric}:Q", title=y_metric.replace("_", " "), format=fmt_y)]
+    return alt.Chart(df).mark_circle(size=110, color=SERIES_1, opacity=0.75).encode(
+        x=alt.X(f"{x_metric}:Q", title=x_metric.replace("_", " "),
+                scale=alt.Scale(zero=False), axis=alt.Axis(format=fmt_x)),
+        y=alt.Y(f"{y_metric}:Q", title=y_metric.replace("_", " "),
+                scale=alt.Scale(zero=False), axis=alt.Axis(format=fmt_y)),
+        tooltip=tooltip,
+    ).properties(height=340)
+
+
+def heatmap(df: pd.DataFrame, x: str, y: str, metric: str, fmt=","):
+    """A matrix heatmap for two categorical dimensions × one measure: `x`/`y` cells
+    colored by `metric` on a sequential single-hue scale (white -> blue, per dataviz —
+    never a rainbow). Value labels are drawn only when the grid is small enough to stay
+    legible; a full tooltip is always present."""
+    import altair as alt
+
+    base = alt.Chart(df).encode(
+        x=alt.X(f"{x}:N", title=x.replace("_", " ")),
+        y=alt.Y(f"{y}:N", title=y.replace("_", " ")),
+    )
+    rects = base.mark_rect().encode(
+        color=alt.Color(f"{metric}:Q", title=metric.replace("_", " "),
+                        scale=alt.Scale(range=["#f2f6fc", SERIES_1]),
+                        legend=alt.Legend(orient="right", format=fmt)),
+        tooltip=[
+            alt.Tooltip(f"{x}:N", title=x.replace("_", " ")),
+            alt.Tooltip(f"{y}:N", title=y.replace("_", " ")),
+            alt.Tooltip(f"{metric}:Q", title=metric.replace("_", " "), format=fmt),
+        ],
+    )
+    n_cells = df[x].nunique() * df[y].nunique()
+    if n_cells <= 60:  # label cells only while they stay readable
+        labels = base.mark_text(baseline="middle", fontSize=10, color=INK_SECONDARY).encode(
+            text=alt.Text(f"{metric}:Q", format=fmt))
+        return (rects + labels).properties(height=alt.Step(34))
+    return rects.properties(height=alt.Step(34))

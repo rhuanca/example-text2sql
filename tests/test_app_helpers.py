@@ -52,6 +52,37 @@ class TestAppHelpers(unittest.TestCase):
         out_cols, out_rows = plots.bucket_long_tail(cols, rows, "product", "sales", top_n=12)
         self.assertEqual(out_rows, rows)                   # unchanged, no Other
 
+    def test_area_chart_single_series_fills_and_titles(self):
+        df = app.to_frame(["month", "v"], [("Jan", 3.0), ("Feb", 5.0), ("Mar", 4.0)])
+        spec = plots.area_chart(df, "month", "v").to_dict()
+        # single-series area is a mark_area (possibly layered with story overlays)
+        marks = ({(spec["mark"]["type"] if isinstance(spec["mark"], dict) else spec["mark"])}
+                 if "mark" in spec else
+                 {(l["mark"]["type"] if isinstance(l["mark"], dict) else l["mark"])
+                  for l in spec["layer"]})
+        self.assertIn("area", marks)
+
+    def test_scatter_chart_two_metrics(self):
+        df = app.to_frame(["store", "budget", "actual"], [("A", 10.0, 12.0), ("B", 20.0, 18.0)])
+        spec = plots.scatter_chart(df, "budget", "actual", "store").to_dict()
+        self.assertEqual(spec["mark"]["type"], "circle")
+        self.assertEqual(spec["encoding"]["x"]["field"], "budget")
+        self.assertEqual(spec["encoding"]["y"]["field"], "actual")
+        self.assertFalse(spec["encoding"]["x"]["scale"]["zero"])  # cloud fills the frame
+
+    def test_heatmap_rect_and_sequential_scale(self):
+        df = app.to_frame(["market", "product", "sales"],
+                          [("N", "Cap", 3.0), ("S", "Cap", 5.0),
+                           ("N", "Latte", 2.0), ("S", "Latte", 9.0)])
+        spec = plots.heatmap(df, "market", "product", "sales").to_dict()
+        marks = {(l["mark"]["type"] if isinstance(l["mark"], dict) else l["mark"])
+                 for l in spec["layer"]}
+        self.assertIn("rect", marks)
+        # sequential single-hue scale (two-stop range: light -> series blue), not rainbow
+        rng = spec["layer"][0]["encoding"]["color"]["scale"]["range"]
+        self.assertEqual(rng[-1], plots.SERIES_1)
+        self.assertEqual(len(rng), 2)
+
     def test_registered_theme_config_is_applied(self):
         # the central theme merges into every chart's spec (branding in one place)
         df = app.to_frame(["m", "v"], [("A", 3), ("B", 5)])

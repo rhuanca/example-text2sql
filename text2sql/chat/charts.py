@@ -15,10 +15,14 @@ from dataclasses import dataclass, field
 TIME_TYPES = {"date", "time", "week", "month", "quarter", "year"}
 _TIME_TOKENS = {"date", "day", "week", "month", "quarter", "year", "time"}
 
+# Above this per-dimension distinct count a heatmap grid stops being readable, so a
+# two-dimension result falls back to the table instead.
+_HEATMAP_CAP = 25
+
 
 @dataclass
 class ChartSpec:
-    kind: str  # "number" | "line" | "bar" | "table"
+    kind: str  # "number" | "line" | "area" | "bar" | "scatter" | "heatmap" | "table"
     x: str | None = None
     y: list[str] = field(default_factory=list)
     series: str | None = None
@@ -118,6 +122,15 @@ def choose_chart(ir, columns: list[str], rows: list, units: dict | None = None,
             if len(metrics) == 1 and (not additive or additive.get(series, True)):
                 return ChartSpec("bar", x=x, y=metrics, series=series, orientation="stacked")
             return ChartSpec("line", x=x, y=metrics, series=series)
+        # Two NON-time dimensions × one measure -> a heatmap (color-encoded matrix),
+        # as long as both stay within a readable cardinality; else fall back to the
+        # table. The lower-cardinality dim goes on x, the higher on y (a taller grid).
+        if not time_dims and len(metrics) == 1:
+            d0, d1 = effective
+            n0, n1 = _distinct_count(d0, columns, rows), _distinct_count(d1, columns, rows)
+            if 0 < n0 <= _HEATMAP_CAP and 0 < n1 <= _HEATMAP_CAP:
+                x, ydim = (d0, d1) if n0 <= n1 else (d1, d0)
+                return ChartSpec("heatmap", x=x, y=metrics, series=ydim)
 
     # Too complex to chart automatically -> show the table.
     return ChartSpec("table", y=metrics)

@@ -41,7 +41,7 @@ from text2sql.chat.model_map import model_to_dot, table_fields
 from text2sql.chat.plots import (
     _display_frame, _fmt_number, _md_safe, _percent_measure, bucket_long_tail,
     chart_frame, comparison_grouped_bar, comparison_long, d3_format, grouped_bar,
-    horizontal_bar, line_chart, line_panel, stacked_bar, to_frame,
+    heatmap, horizontal_bar, line_chart, line_panel, stacked_bar, to_frame,
     vertical_grouped_bar,
 )
 from text2sql.chat.summarizer import AnthropicSummarizer, MockSummarizer
@@ -290,6 +290,13 @@ def _render_assistant(st, payload, units=None, additive=None, types=None):
             stacked_bar(to_frame(result.columns, result.rows), spec.x, spec.series,
                         spec.y[0], fmt=d3_format(units.get(spec.y[0])),
                         x_type=types.get(spec.x)),
+            use_container_width=True,
+        )
+    elif spec.kind == "heatmap":
+        # two categorical dimensions x one measure -> a color-encoded matrix
+        st.altair_chart(
+            heatmap(to_frame(result.columns, result.rows), spec.x, spec.series,
+                    spec.y[0], fmt=d3_format(units.get(spec.y[0]))),
             use_container_width=True,
         )
     elif spec.kind == "bar":

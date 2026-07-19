@@ -24,6 +24,27 @@ class TestChooseChart(unittest.TestCase):
         self.assertTrue(is_time_like("iso_week"))   # fallback name heuristic
         self.assertFalse(is_time_like("market"))
 
+    def test_two_categorical_dims_is_heatmap(self):
+        cols = ["market", "product", "total_net_sales"]
+        rows = [("N", "Cap", 3.0), ("S", "Cap", 5.0),
+                ("N", "Latte", 2.0), ("S", "Latte", 9.0)]
+        spec = choose_chart(ir(["total_net_sales"], ["market", "product"]), cols, rows,
+                            types={"market": "text", "product": "text"})
+        self.assertEqual(spec.kind, "heatmap")
+        # fewer-distinct dim on x (market=2), higher on y via series (product=2 here)
+        self.assertIn(spec.x, ("market", "product"))
+        self.assertEqual(spec.y, ["total_net_sales"])
+        self.assertIsNotNone(spec.series)
+        self.assertNotEqual(spec.x, spec.series)
+
+    def test_two_dims_over_cardinality_cap_falls_back_to_table(self):
+        # both dims vary, but one has 30 distinct (> cap) -> heatmap unreadable -> table
+        cols = ["market", "product", "total_net_sales"]
+        rows = [(m, f"p{i}", float(i)) for m in ("N", "S") for i in range(30)]
+        spec = choose_chart(ir(["total_net_sales"], ["market", "product"]), cols, rows,
+                            types={"market": "text", "product": "text"})
+        self.assertEqual(spec.kind, "table")
+
     def test_time_dimension_by_type_is_line(self):
         cols = ["txn_month", "total_amount"]
         rows = [(1, 100.0), (2, 120.0), (3, 90.0)]
@@ -149,7 +170,8 @@ class TestChooseChart(unittest.TestCase):
         # an additive split (default) still stacks
         self.assertEqual(choose_chart(*args).orientation, "stacked")
 
-    def test_two_categorical_dims_is_table(self):
+    def test_two_low_cardinality_dims_is_heatmap(self):
+        # two small categorical dims x one measure now render as a heatmap matrix
         cols = ["market", "category_name", "total_net_sales"]
         rows = [
             ("Houston", "Donuts", 50.0), ("Houston", "Beverages", 20.0),
@@ -158,7 +180,7 @@ class TestChooseChart(unittest.TestCase):
         spec = choose_chart(
             ir(["total_net_sales"], ["market", "category_name"]), cols, rows
         )
-        self.assertEqual(spec.kind, "table")
+        self.assertEqual(spec.kind, "heatmap")
 
     def test_no_metric_is_table(self):
         spec = choose_chart(ir([], ["market"]), ["market"], [("Houston",)])
