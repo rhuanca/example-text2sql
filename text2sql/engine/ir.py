@@ -30,15 +30,23 @@ class Filter:
 @dataclass
 class TimeWindow:
     field: str  # a date-typed dimension name
-    last: int  # size of the window, in `unit`s
-    unit: str = "day"  # day | week | month
-    anchor: str = "data"  # "data" = latest date present; "today" = wall clock
+    # kind "trailing": the last `last` complete `unit`s up to today (e.g. last_period).
+    # kind "to_date":  the current `unit` so far — start of period through today (YTD/MTD).
+    last: int | None = None  # window size in `unit`s (trailing only)
+    unit: str = "day"
+    kind: str = "trailing"
 
     def __post_init__(self):
-        if self.unit not in ("day", "week", "month"):
-            raise ValueError(f"time unit must be day/week/month: {self.unit!r}")
-        if self.anchor not in ("data", "today"):
-            raise ValueError(f"time anchor must be data/today: {self.anchor!r}")
+        if self.kind not in ("trailing", "to_date"):
+            raise ValueError(f"time kind must be trailing/to_date: {self.kind!r}")
+        if self.kind == "trailing":
+            if self.unit not in ("day", "week", "month"):
+                raise ValueError(f"trailing time unit must be day/week/month: {self.unit!r}")
+            if not self.last or self.last < 1:
+                raise ValueError(f"trailing window needs a positive `last`: {self.last!r}")
+        else:  # to_date
+            if self.unit not in ("day", "week", "month", "quarter", "year"):
+                raise ValueError(f"to_date unit must be day/week/month/quarter/year: {self.unit!r}")
 
 
 @dataclass
@@ -72,9 +80,9 @@ class SemanticQuery:
             last = t.get("last", t.get("last_n_days"))
             time = TimeWindow(
                 field=t["field"],
-                last=int(last),
+                last=int(last) if last is not None else None,
                 unit=t.get("unit", "day"),
-                anchor=t.get("anchor", "data"),
+                kind=t.get("kind", "trailing"),
             )
         mk_filters = lambda key: [
             Filter(f["field"], f["op"], f.get("value")) for f in d.get(key, [])
@@ -104,9 +112,13 @@ class SemanticQuery:
             ]
         if self.time:
             out["time"] = {
-                "field": self.time.field, "last": self.time.last,
-                "unit": self.time.unit, "anchor": self.time.anchor,
+                "field": self.time.field,
+                "unit": self.time.unit,
             }
+            if self.time.last is not None:
+                out["time"]["last"] = self.time.last
+            if self.time.kind != "trailing":
+                out["time"]["kind"] = self.time.kind
         if self.order_by:
             out["order_by"] = [{"field": o.field, "dir": o.dir} for o in self.order_by]
         if self.limit is not None:

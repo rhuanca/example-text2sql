@@ -205,6 +205,16 @@ verified_queries:
   - question: "Invoiced amount vs posted amount by entity"
     sql: >
       SELECT entity, invoiced_amount, total_amount FROM qbo_finance GROUP BY entity
+  # calendar-to-date: a side-by-side income vs expense pivot, year-to-date (Jan 1 of
+  # the current year through today) via period_to_date — not a trailing window.
+  - question: "Year-to-date income vs expenses by month"
+    sql: >
+      SELECT month,
+        SUM(CASE WHEN classification = 'Revenue' THEN total_amount END) AS income,
+        SUM(CASE WHEN classification = 'Expense' THEN total_amount END) AS expenses
+      FROM qbo_finance WHERE classification IN ('Revenue', 'Expense')
+        AND txn_date >= period_to_date('year')
+      GROUP BY month ORDER BY month
   # a year-over-year pivot: one revenue column per year (was eval/verified_qbo.yml)
   - question: "compare revenue for jan, feb, and march between 2025 and 2026"
     sql: >

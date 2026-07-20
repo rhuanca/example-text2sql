@@ -46,11 +46,12 @@ class Comparison:
         time = None
         if d.get("time"):
             t = d["time"]
+            last = t.get("last", t.get("last_n_days"))
             time = TimeWindow(
                 field=t["field"],
-                last=int(t.get("last", t.get("last_n_days"))),
+                last=int(last) if last is not None else None,
                 unit=t.get("unit", "day"),
-                anchor=t.get("anchor", "data"),
+                kind=t.get("kind", "trailing"),
             )
         return cls(
             metric=d["metric"],
@@ -76,10 +77,11 @@ class Comparison:
                 {"field": f.field, "op": f.op, "value": f.value} for f in self.filters
             ]
         if self.time:
-            out["time"] = {
-                "field": self.time.field, "last": self.time.last,
-                "unit": self.time.unit, "anchor": self.time.anchor,
-            }
+            out["time"] = {"field": self.time.field, "unit": self.time.unit}
+            if self.time.last is not None:
+                out["time"]["last"] = self.time.last
+            if self.time.kind != "trailing":
+                out["time"]["kind"] = self.time.kind
         return out
 
 

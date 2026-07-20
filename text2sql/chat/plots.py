@@ -133,6 +133,15 @@ def month_label(value):
     return value
 
 
+def period_label(start, end) -> str:
+    """A relative window's concrete span for display, reusing `month_label`: a
+    single bucket (e.g. "past month") reads "Nov 2026"; a multi-bucket window reads
+    "Jun 2026 – Nov 2026". Day/week buckets aren't month-form, so they pass through
+    `month_label` as ISO dates."""
+    a, b = month_label(start), month_label(end)
+    return str(a) if a == b else f"{a} – {b}"
+
+
 def _month_axis(df: pd.DataFrame, x: str, x_type: str | None):
     """If `x` is a month dimension, relabel its values to `month_label` and return
     an explicit chronological `sort` order (by the underlying value, so `"Apr 2026"`

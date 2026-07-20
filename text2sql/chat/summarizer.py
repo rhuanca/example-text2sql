@@ -21,12 +21,13 @@ _SYSTEM = (
 
 
 class Summarizer(Protocol):
-    def summarize(self, question: str, columns: list[str], rows: list) -> str:
+    def summarize(self, question: str, columns: list[str], rows: list,
+                  period: str | None = None) -> str:
         ...
 
 
 class MockSummarizer:
-    def summarize(self, question, columns, rows) -> str:
+    def summarize(self, question, columns, rows, period=None) -> str:
         return f"{len(rows)} row(s) for: {question}"
 
 
@@ -40,10 +41,14 @@ def render_table(columns: list[str], rows: list, max_rows: int = 50) -> str:
     return "\n".join(out)
 
 
-def build_summary_prompt(question: str, columns: list[str], rows: list, max_rows: int = 50) -> str:
+def build_summary_prompt(question: str, columns: list[str], rows: list, max_rows: int = 50,
+                         period: str | None = None) -> str:
+    # A resolved relative window ("past month" -> "Nov 2026") lets the prose name the
+    # concrete period instead of echoing the vague relative wording.
+    span = f"Time period: {period}.\n\n" if period else ""
     return (
         f"Question: {question}\n\n"
-        f"Results ({len(rows)} rows):\n{render_table(columns, rows, max_rows)}"
+        f"{span}Results ({len(rows)} rows):\n{render_table(columns, rows, max_rows)}"
     )
 
 
@@ -61,8 +66,8 @@ class AnthropicSummarizer:
             client = build_anthropic_client(key)
         self.client = client
 
-    def summarize(self, question, columns, rows) -> str:
-        prompt = build_summary_prompt(question, columns, rows, self.max_rows)
+    def summarize(self, question, columns, rows, period=None) -> str:
+        prompt = build_summary_prompt(question, columns, rows, self.max_rows, period=period)
         t0 = time.monotonic()
         resp = self.client.messages.create(
             model=self.model,

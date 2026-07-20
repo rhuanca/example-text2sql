@@ -34,9 +34,11 @@ class TestMysqlSeam(unittest.TestCase):
             "time": {"field": "date", "last_n_days": 30},
         })
         sql, _ = compile(ir, self.model, MysqlDialect())
+        # calendar-anchored, two-sided wall-clock window (no data MAX)
         self.assertIn("DATE_SUB(", sql)
-        self.assertIn("INTERVAL 29 DAY", sql)            # last 30 days = anchor - 29
-        self.assertIn("MAX(`date`)", sql)                # data-anchored window
+        self.assertIn("INTERVAL 30 DAY", sql)            # last 30 complete days up to today
+        self.assertIn("CURDATE()", sql)
+        self.assertNotIn("MAX(", sql)
 
     def test_time_grains_compile_to_mysql(self):
         for dim, needle in [("month", "DATE_FORMAT(`fact_sales`.`date`, '%Y-%m-01')"),

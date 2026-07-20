@@ -100,6 +100,15 @@ class TestAppHelpers(unittest.TestCase):
         # are readable, not rotated vertical
         self.assertEqual(spec["layer"][0]["encoding"]["x"]["axis"]["labelAngle"], 0)
 
+    def test_period_label(self):
+        # single month bucket -> one label; distinct buckets -> a range; both via month_label
+        self.assertEqual(plots.period_label("2026-11-01", "2026-11-01"), "Nov 2026")
+        self.assertEqual(plots.period_label("2026-06-01", "2026-11-01"), "Jun 2026 – Nov 2026")
+        # day/week buckets aren't month-form -> month_label passes them through as ISO
+        self.assertEqual(plots.period_label("2026-11-13", "2026-11-13"), "2026-11-13")
+        self.assertEqual(plots.period_label("2026-10-15", "2026-11-13"),
+                         "2026-10-15 – 2026-11-13")
+
     def test_registered_theme_config_is_applied(self):
         # the central theme merges into every chart's spec (branding in one place)
         df = app.to_frame(["m", "v"], [("A", 3), ("B", 5)])
@@ -410,6 +419,32 @@ class TestAppHelpers(unittest.TestCase):
         app._render_assistant(st, {"result": result, "summary": "hi"})
         self.assertTrue(any(c == "Interpreted as: revenue of the past 6 days for Contoso SAS"
                             for c in st.captions))
+
+    def test_render_shows_resolved_period_caption(self):
+        from text2sql.engine.ir import SemanticQuery
+
+        class _Ctx:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        class _FakeSt:
+            def __init__(self): self.captions = []
+            def caption(self, text): self.captions.append(text)
+            def columns(self, spec):
+                return [self] * (spec if isinstance(spec, int) else len(spec))
+            def expander(self, *a, **k): return _Ctx()
+            def __getattr__(self, name):
+                return lambda *a, **k: None
+
+        result = SimpleNamespace(
+            ir=SemanticQuery(metrics=["total_net_sales"], dimensions=["market"]),
+            columns=["market", "total_net_sales"], rows=[("Houston", 100.0)],
+            sql="SELECT ...", semantic_sql=None, rewritten=None,
+            period_start="2026-11-01", period_end="2026-11-01",
+        )
+        st = _FakeSt()
+        app._render_assistant(st, {"result": result, "summary": "hi"})
+        self.assertTrue(any(c == "📅 Nov 2026" for c in st.captions))
 
     def test_render_chart_honors_selected_kind_override(self):
         from text2sql.engine.ir import SemanticQuery

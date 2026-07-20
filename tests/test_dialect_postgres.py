@@ -39,8 +39,10 @@ class TestPostgresSeam(unittest.TestCase):
             }
         )
         sql, _ = compile(ir, self.model, PostgresDialect())
-        self.assertIn("INTERVAL '29 days'", sql)  # last 30 days = anchor - 29 (30 buckets)
-        self.assertIn('MAX("date")', sql)  # data-anchored window
+        # calendar-anchored, two-sided wall-clock window (no data MAX)
+        self.assertIn("INTERVAL '30 days'", sql)   # last 30 complete days up to today
+        self.assertIn("CURRENT_DATE", sql)
+        self.assertNotIn("MAX(", sql)
 
     def test_time_grains_compile_to_postgres(self):
         # structured time dims lower through the dialect (date_trunc / EXTRACT),

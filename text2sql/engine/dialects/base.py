@@ -20,10 +20,15 @@ class Dialect:
     def placeholder(self) -> str:
         raise NotImplementedError
 
+    def current_date(self) -> str:
+        """The wall-clock 'today' as a date expression, valid as input to
+        `date_trunc`/`relative_date`. Overridden per dialect (SQLite `'now'`,
+        Postgres `CURRENT_DATE`, MySQL `CURDATE()`)."""
+        raise NotImplementedError
+
     def relative_date(self, n: int, unit: str, anchor_sql: str | None = None) -> str:
         """SQL expression for (anchor - n*unit), unit in day|week|month.
-        `anchor_sql` is a date expression (e.g. a `(SELECT MAX(col) FROM t)`
-        subquery for data-anchoring); None means the dialect's own 'today'."""
+        `anchor_sql` is a date expression; None means the dialect's own 'today'."""
         raise NotImplementedError
 
     def date_trunc(self, unit: str, col_sql: str) -> str:

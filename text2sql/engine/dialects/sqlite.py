@@ -9,6 +9,9 @@ class SqliteDialect(Dialect):
     def placeholder(self) -> str:
         return "?"
 
+    def current_date(self) -> str:
+        return "'now'"
+
     def relative_date(self, n: int, unit: str, anchor_sql: str | None = None) -> str:
         # sqlite has no 'weeks' modifier -> convert to days
         days = {"day": int(n), "week": int(n) * 7}.get(unit)

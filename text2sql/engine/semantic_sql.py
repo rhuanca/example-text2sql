@@ -309,7 +309,13 @@ def _predicate(pred, dim_names):
                 raise SemanticSqlError("last_period(...) must be used with `>=` on a date")
             _require_dim(col, dim_names)
             n, unit = _last_period_args(right)
-            return "time", TimeWindow(field=col, last=n, unit=unit, anchor="data")
+            return "time", TimeWindow(field=col, last=n, unit=unit)
+        if isinstance(right, exp.Anonymous) and right.name.lower() == "period_to_date":
+            if op not in (">=", ">"):
+                raise SemanticSqlError("period_to_date(...) must be used with `>=` on a date")
+            _require_dim(col, dim_names)
+            unit = _to_date_args(right)
+            return "time", TimeWindow(field=col, unit=unit, kind="to_date")
         _require_dim(col, dim_names)
         return "filter", Filter(col, op, _literal(right))
 
@@ -394,6 +400,18 @@ def _last_period_args(func):
     if unit not in ("day", "week", "month"):
         raise SemanticSqlError("last_period: unit must be 'day', 'week', or 'month'")
     return n, unit
+
+
+def _to_date_args(func):
+    args = func.expressions
+    if len(args) != 1:
+        raise SemanticSqlError("period_to_date(unit) takes exactly one argument")
+    unit = _literal(args[0])
+    if unit not in ("day", "week", "month", "quarter", "year"):
+        raise SemanticSqlError(
+            "period_to_date: unit must be 'day', 'week', 'month', 'quarter', or 'year'"
+        )
+    return unit
 
 
 # ---- window / derived queries (e.g. period-over-period % change) ------------

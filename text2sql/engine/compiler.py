@@ -226,29 +226,42 @@ def _where(ir, model, dialect, qualify: bool):
 
     if ir.time:
         d = model.dimension(ir.time.field)
-        tbl = qi(model.table(d.table).table)
-        # derived-aware: a derived time dim (e.g. week_start) has no physical column,
-        # so use its expr both as the LHS and inside the MAX(...) data anchor.
+        # derived-aware: a derived time dim (e.g. week_start) uses its expr as the LHS.
         colexpr = _col_sql(model, d, dialect, qualify)
-        anchor_col = _col_sql(model, d, dialect, qualify=False)
-        clauses.append(_time_clause(ir.time, anchor_col, tbl, colexpr, dialect))
+        clauses.append(_time_clause(ir.time, colexpr, dialect))
 
     return " AND ".join(clauses), params
 
 
-def _time_clause(t, col, tbl, colexpr, dialect) -> str:
-    """Lower a TimeWindow to `colexpr >= <bucket-aligned anchor - (last-1) units>`.
-    Anchored to the data, the anchor is the latest date present. Aligning it to the
-    START of its own bucket (for week/month) and going back last-1 *whole* units makes
-    "last N <unit>" cover exactly N COMPLETE buckets when grouped by that unit — not
-    N+1 with a partial leading bucket (an unaligned N-unit span crosses N+1 buckets)."""
-    if t.anchor == "data":
-        raw = f"(SELECT MAX({col}) FROM {tbl})"
-        # days are already bucket-aligned; week/month need truncation to the bucket start
-        anchor = raw if t.unit == "day" else dialect.date_trunc(t.unit, raw)
-    else:
-        anchor = None  # wall-clock anchor
-    return f"{colexpr} >= {dialect.relative_date(t.last - 1, t.unit, anchor)}"
+def _time_clause(t, colexpr, dialect) -> str:
+    """Lower a TimeWindow to a two-sided **wall-clock** window.
+    - `to_date`: the current `unit` so far — `[start of this unit, today]` (YTD/MTD),
+      inclusive of today's partial period.
+    - `trailing`: the last `t.last` COMPLETE `t.unit`s up to today, excluding the
+      current partial one — `[cur - last units, cur)`, so "past month" (last=1) is
+      exactly the previous calendar month. Either way a period with no data → no rows."""
+    if t.kind == "to_date":
+        start = dialect.date_trunc(t.unit, dialect.current_date())
+        today = dialect.date_trunc("day", dialect.current_date())
+        return f"{colexpr} >= {start} AND {colexpr} <= {today}"
+    cur = dialect.date_trunc(t.unit, dialect.current_date())
+    lower = dialect.relative_date(t.last, t.unit, cur)
+    return f"{colexpr} >= {lower} AND {colexpr} < {cur}"
+
+
+def resolve_window_sql(t, dialect) -> str:
+    """SQL that resolves a relative `TimeWindow` to its concrete bucket boundaries so
+    the UI can show which period was covered (e.g. "past month" -> Jun 2026, YTD ->
+    "Jan 2026 - Jul 2026"). Wall-clock, matching `_time_clause`; `period_start`/
+    `period_end` are the first/last bucket (equal for a single-bucket window)."""
+    if t.kind == "to_date":
+        start = dialect.date_trunc(t.unit, dialect.current_date())          # start of period
+        end = dialect.date_trunc("month", dialect.current_date())           # current month
+        return f"SELECT {start} AS period_start, {end} AS period_end"
+    cur = dialect.date_trunc(t.unit, dialect.current_date())
+    start = dialect.relative_date(t.last, t.unit, cur)   # first included bucket
+    end = dialect.relative_date(1, t.unit, cur)          # last included bucket (cur - 1 unit)
+    return f"SELECT {start} AS period_start, {end} AS period_end"
 
 
 def _where_for_base(ir, model, dialect, base, key_cols):
@@ -271,9 +284,8 @@ def _where_for_base(ir, model, dialect, base, key_cols):
     if ir.time:
         d = model.dimension(ir.time.field)
         if d.column in base_cols or ir.time.field in key_names:
-            tbl = qi(model.table(d.table).table)
             colexpr = _col_sql(model, d, dialect, qualify=False)  # grain/derived-aware
-            clauses.append(_time_clause(ir.time, colexpr, tbl, colexpr, dialect))
+            clauses.append(_time_clause(ir.time, colexpr, dialect))
 
     return " AND ".join(clauses), params
 

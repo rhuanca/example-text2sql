@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from ..semantic.model import SemanticModel
 from .compare import Comparison, compile_comparison, validate_comparison
-from .compiler import CompileError, compile as compile_ir
+from .compiler import CompileError, compile as compile_ir, resolve_window_sql
 from .dialects.base import Dialect
 from .ir import SemanticQuery
 from .planner import Planner
@@ -72,6 +72,10 @@ class Result:
     rows: list
     semantic_sql: str | None = None  # the LLM-authored semantic SQL, if any
     rewritten: str | None = None  # the standalone question, if a rewrite carried scope
+    # A relative time window ("past month") resolved to its concrete bucket(s), so the
+    # UI can say *which* period — first and last bucket (equal for a single-unit window).
+    period_start: str | None = None
+    period_end: str | None = None
 
 
 class EngineError(Exception):
@@ -136,11 +140,28 @@ class Engine:
                         sql, params = compile_ir(plan, self.model, self.dialect)
                 validate_sql(sql)
                 columns, rows = self.executor.run(sql, params)
+                period_start, period_end = self._resolve_period(ir)
                 return Result(question, ir, sql, params, columns, rows,
-                              semantic_sql, rewritten=rewritten)
+                              semantic_sql, rewritten=rewritten,
+                              period_start=period_start, period_end=period_end)
             except _RECOVERABLE as e:
                 last_exc = e
                 error = f"{type(e).__name__}: {e}"
         raise EngineError(
             f"could not answer after {self.max_retries + 1} attempts: {error}"
         ) from last_exc
+
+    def _resolve_period(self, ir) -> tuple[str | None, str | None]:
+        """Resolve a plan's relative time window to its concrete bucket boundaries so
+        the UI can report which period was covered. Best-effort: any failure just
+        yields (None, None) and never affects the answer."""
+        t = getattr(ir, "time", None)
+        if t is None:
+            return None, None
+        try:
+            _, rows = self.executor.run(resolve_window_sql(t, self.dialect), [])
+            if rows:
+                return rows[0][0], rows[0][1]
+        except Exception:
+            pass
+        return None, None

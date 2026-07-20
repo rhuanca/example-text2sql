@@ -43,7 +43,8 @@ from text2sql.chat.plots import (
     _display_frame, _fmt_number, _md_safe, _percent_measure, _pretty, area_chart,
     bucket_long_tail, chart_frame, comparison_grouped_bar, comparison_long, d3_format,
     faceted_line, grouped_bar, heatmap, horizontal_bar, line_chart, line_panel,
-    needs_split, scatter_chart, stacked_bar, to_frame, vertical_grouped_bar,
+    needs_split, period_label, scatter_chart, stacked_bar, to_frame,
+    vertical_grouped_bar,
 )
 from text2sql.chat.summarizer import AnthropicSummarizer, MockSummarizer
 from text2sql.eval.history import load_history
@@ -201,9 +202,9 @@ def reset_session(session_state) -> None:
     session_state["thread_id"] = uuid.uuid4().hex
 
 
-def safe_summarize(summarizer, question, columns, rows) -> str:
+def safe_summarize(summarizer, question, columns, rows, period=None) -> str:
     try:
-        text = summarizer.summarize(question, columns, rows)
+        text = summarizer.summarize(question, columns, rows, period=period)
         return text or _fallback_summary(rows)
     except Exception:
         return _fallback_summary(rows)
@@ -338,6 +339,9 @@ def _render_assistant(st, payload, units=None, additive=None, types=None):
     if getattr(result, "rewritten", None):
         # scope carried from earlier turns — show it so it's transparent + reversible
         st.caption(f"Interpreted as: {result.rewritten}")
+    if getattr(result, "period_start", None):
+        # a relative window ("past month") resolved to the concrete period covered
+        st.caption(f"📅 {period_label(result.period_start, result.period_end)}")
     missing = payload.get("missing_dims")
     if missing:  # a requested breakdown the result didn't actually include — be honest
         names = ", ".join(_pretty(d) for d in missing)
@@ -553,8 +557,10 @@ def main():
                     with st.spinner("Thinking…"):
                         result = engine.ask(prompt, history=history,
                                         thread_id=st.session_state.thread_id)
+                        period = (period_label(result.period_start, result.period_end)
+                                  if result.period_start else None)
                         summary = safe_summarize(
-                            summarizer, prompt, result.columns, result.rows
+                            summarizer, prompt, result.columns, result.rows, period=period
                         )
                     payload = {"role": "assistant", "result": result, "summary": summary,
                                "missing_dims": missing_dimensions(

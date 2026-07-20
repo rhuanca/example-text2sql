@@ -162,7 +162,7 @@ cases:
       dimensions: []
 
   # ---- semantic-SQL cases (reference SQL, not IR) --------------------------
-  # These exercise capabilities the LLM expresses directly in SQL: a data-anchored
+  # These exercise capabilities the LLM expresses directly in SQL: a calendar-anchored
   # relative window, HAVING on an aggregate, and a CASE pivot (a period comparison).
 
   - id: net-sales-last-6-weeks

@@ -18,6 +18,9 @@ class MysqlDialect(Dialect):
     def placeholder(self) -> str:
         return "%s"
 
+    def current_date(self) -> str:
+        return "CURDATE()"
+
     def relative_date(self, n: int, unit: str, anchor_sql: str | None = None) -> str:
         anchor = anchor_sql if anchor_sql else "CURDATE()"
         # MySQL has native DAY/WEEK/MONTH intervals — no day-conversion needed.

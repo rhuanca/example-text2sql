@@ -1,10 +1,45 @@
 """Semantic SQL front-end: parse + validate LLM SQL into the IR, the validation
-safety boundary, and the data-anchored relative window (the reported bug)."""
+safety boundary, and the calendar-anchored relative window (the reported bug)."""
 
+import datetime
 import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+
+
+def _build_today_relative_db(path, days: int = 220) -> str:
+    """A minimal `fact_sales` with one row per day for the last `days` days ending
+    today — so calendar-anchored `last_period` windows are testable deterministically
+    (the buckets are relative to now, not to a fixed seed)."""
+    today = datetime.date.today()
+    conn = sqlite3.connect(path)
+    conn.execute(
+        "CREATE TABLE fact_sales (date TEXT, iso_week INT, iso_year INT, "
+        "product_name TEXT, item_net_sales REAL, transaction_deleted INT)"
+    )
+    rows = []
+    for i in range(days):
+        d = today - datetime.timedelta(days=i)
+        iso = d.isocalendar()
+        rows.append((d.isoformat(), iso[1], iso[0], "Cappuccino", 10.0, 0))
+    conn.executemany("INSERT INTO fact_sales VALUES (?,?,?,?,?,?)", rows)
+    conn.commit()
+    conn.close()
+    return str(path)
+
+
+def _months_before(k_values):
+    """The first-of-month ISO strings for `this month − k`, computed from today."""
+    first = datetime.date.today().replace(day=1)
+    out = []
+    for k in k_values:
+        y, m = first.year, first.month - k
+        while m <= 0:
+            m += 12
+            y -= 1
+        out.append(datetime.date(y, m, 1).isoformat())
+    return out
 
 from text2sql.db.seed import build_database
 from text2sql.engine.compare import Comparison
@@ -83,13 +118,26 @@ class TestNormalize(SqlCase):
         self.assertEqual(ir.having[0].op, ">")
         self.assertEqual(ir.limit, 3)
 
-    def test_last_period_becomes_data_anchored_window(self):
+    def test_last_period_parses_to_time_window(self):
         ir = self.ir(
             "SELECT iso_week, total_net_sales FROM product_sales "
             "WHERE date >= last_period(6, 'week') GROUP BY iso_week"
         )
-        self.assertEqual((ir.time.field, ir.time.last, ir.time.unit, ir.time.anchor),
-                         ("date", 6, "week", "data"))
+        self.assertEqual((ir.time.field, ir.time.last, ir.time.unit),
+                         ("date", 6, "week"))
+
+    def test_period_to_date_parses_to_to_date_window(self):
+        ir = self.ir(
+            "SELECT total_net_sales FROM product_sales WHERE date >= period_to_date('year')"
+        )
+        self.assertEqual((ir.time.field, ir.time.unit, ir.time.kind),
+                         ("date", "year", "to_date"))
+        self.assertIsNone(ir.time.last)  # to-date has no N
+
+    def test_period_to_date_rejects_bad_unit(self):
+        with self.assertRaises(SemanticSqlError):
+            self.ir("SELECT total_net_sales FROM product_sales "
+                    "WHERE date >= period_to_date('fortnight')")
 
 
 class TestValidationRejects(SqlCase):
@@ -219,20 +267,21 @@ class TestEndToEnd(SqlCase):
             conn.close()
 
     def test_last_6_weeks_returns_only_recent_weeks(self):
-        # the reported bug: "last six weeks" must NOT return the whole year.
+        # the reported bug: "last six weeks" must NOT return the whole year. Calendar-
+        # anchored -> exactly the 6 COMPLETE ISO weeks before the current one.
+        db = _build_today_relative_db(Path(self.tmp.name) / "recent_weeks.db")
         ir = self.ir(
             "SELECT iso_week, total_net_sales FROM product_sales "
             "WHERE product_name = 'Cappuccino' AND date >= last_period(6, 'week') "
             "GROUP BY iso_week ORDER BY iso_week"
         )
         sql, params = compile(ir, self.model, self.dialect)
-        _, rows = SqliteExecutor(self.db).run(sql, params)
+        _, rows = SqliteExecutor(db).run(sql, params)
         weeks = [r[0] for r in rows]
-
-        max_week = self.raw("SELECT MAX(iso_week) FROM fact_sales")[0][0]
-        self.assertLessEqual(len(weeks), 7)  # ~6 weeks, not the whole year
-        self.assertEqual(max(weeks), max_week)  # anchored at the latest data
-        self.assertGreaterEqual(min(weeks), max_week - 6)
+        # exactly 6 complete week buckets — not the whole year (the reported bug), and
+        # not N+1. (The precise Monday is the dialect's; we don't re-derive it here.)
+        self.assertEqual(len(weeks), 6)
+        self.assertEqual(len(set(weeks)), 6)  # distinct, consecutive ISO weeks
 
     def test_engine_runs_a_case_pivot(self):
         engine = Engine(self.model, _SqlPlanner(_PIVOT_SQL), self.dialect,
@@ -332,16 +381,33 @@ class TestEndToEnd(SqlCase):
         self.assertEqual(len(rows), 6)
 
     def test_last_period_month_window_restricts_rows(self):
+        # calendar-anchored -> exactly the 3 COMPLETE months before this one, excluding
+        # the current partial month (no N+1, no future/current bucket).
+        db = _build_today_relative_db(Path(self.tmp.name) / "recent_months.db")
         sql, params, _ = compile_semantic_sql(
             "SELECT month, total_net_sales FROM product_sales "
             "WHERE date >= last_period(3, 'month') GROUP BY month ORDER BY month",
             self.model, self.dialect,
         )
-        _, rows = SqliteExecutor(self.db).run(sql, params)
+        _, rows = SqliteExecutor(db).run(sql, params)
         months = [r[0] for r in rows]
-        self.assertEqual(len(months), 3)  # exactly 3 complete months (Oct/Nov/Dec)
-        self.assertEqual(max(months), "2026-12-01")  # anchored at the latest data
-        self.assertEqual(min(months), "2026-10-01")
+        self.assertEqual(months, _months_before([3, 2, 1]))  # e.g. Apr/May/Jun if July
+
+    def test_period_to_date_year_restricts_to_ytd(self):
+        # YTD: Jan 1 of the current year through today (inclusive of the current
+        # partial month), not the trailing window or the whole dataset.
+        db = _build_today_relative_db(Path(self.tmp.name) / "ytd.db", days=420)
+        sql, params, _ = compile_semantic_sql(
+            "SELECT month, total_net_sales FROM product_sales "
+            "WHERE date >= period_to_date('year') GROUP BY month ORDER BY month",
+            self.model, self.dialect,
+        )
+        _, rows = SqliteExecutor(db).run(sql, params)
+        months = [r[0] for r in rows]
+        today = datetime.date.today()
+        expected = [datetime.date(today.year, mo, 1).isoformat()
+                    for mo in range(1, today.month + 1)]  # Jan .. current month
+        self.assertEqual(months, expected)
 
 
 class TestCte(TestEndToEnd):

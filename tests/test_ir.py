@@ -9,7 +9,7 @@ class TestIR(unittest.TestCase):
             "metrics": ["total_net_sales"],
             "dimensions": ["product_name", "iso_week"],
             "filters": [{"field": "product_name", "op": "=", "value": "Dozen Glazed"}],
-            "time": {"field": "date", "last": 42, "unit": "day", "anchor": "data"},
+            "time": {"field": "date", "last": 42, "unit": "day"},
             "order_by": [{"field": "iso_week", "dir": "asc"}],
             "limit": 100,
         }
@@ -22,7 +22,14 @@ class TestIR(unittest.TestCase):
         ir = SemanticQuery.from_dict(
             {"metrics": ["m"], "time": {"field": "date", "last_n_days": 30}}
         )
-        self.assertEqual((ir.time.last, ir.time.unit, ir.time.anchor), (30, "day", "data"))
+        self.assertEqual((ir.time.last, ir.time.unit), (30, "day"))
+
+    def test_to_date_window_round_trips(self):
+        d = {"metrics": ["m"], "time": {"field": "date", "unit": "year", "kind": "to_date"}}
+        ir = SemanticQuery.from_dict(d)
+        self.assertEqual((ir.time.kind, ir.time.unit), ("to_date", "year"))
+        self.assertIsNone(ir.time.last)  # to-date carries no N
+        self.assertEqual(ir.to_dict()["time"], d["time"])
 
     def test_rejects_bad_op(self):
         with self.assertRaises(ValueError):

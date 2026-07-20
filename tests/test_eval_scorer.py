@@ -119,6 +119,12 @@ class TestScoreIR(unittest.TestCase):
         )
         self.assertFalse(score_ir(expected, predicted).exact)
 
+        # a trailing window and a calendar-to-date window are different constraints
+        trailing = ir({"metrics": ["a"], "time": {"field": "date", "last": 1, "unit": "month"}})
+        to_date = ir({"metrics": ["a"], "time": {"field": "date", "unit": "month",
+                                                  "kind": "to_date"}})
+        self.assertFalse(score_ir(trailing, to_date).exact)
+
 
 class TestResultSetsMatch(unittest.TestCase):
     def test_unordered_multiset_match(self):

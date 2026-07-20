@@ -140,8 +140,13 @@ def build_system_prompt(model: SemanticModel) -> str:
         "NOT IN, or LIKE. Combine conditions with AND.",
         "- Relative time: use last_period(N, 'day'|'week'|'month') on a date "
         "dimension, e.g. `WHERE <date_dim> >= last_period(6, 'week')`. It resolves "
-        "to the last N periods present in the DATA — never write today's date, a "
-        "literal date range, or guessed week/month numbers.",
+        "to the last N COMPLETE <unit>s up to today (the previous N periods, "
+        "excluding the current partial one) — never write today's date, a literal "
+        "date range, or guessed week/month numbers.",
+        "- Calendar-to-date: for 'year/quarter/month/week to date' (YTD/QTD/MTD, the "
+        "current period so far, through today) use period_to_date('year'|'quarter'|"
+        "'month'|'week'), e.g. `WHERE <date_dim> >= period_to_date('year')` for YTD. "
+        "Use last_period for a trailing window; period_to_date for the current period.",
         "- Filter aggregated measures with HAVING (e.g. `HAVING <metric> > 1000`).",
         "- Rank with `ORDER BY <col> [DESC]` and `LIMIT N`.",
         "- For 'week over week' or a trend over many periods, SELECT the time "

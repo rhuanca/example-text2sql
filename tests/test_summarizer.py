@@ -24,11 +24,23 @@ class TestPrompt(unittest.TestCase):
         self.assertIn("Houston", prompt)
         self.assertIn("100.0", prompt)
 
+    def test_prompt_includes_resolved_period(self):
+        prompt = build_summary_prompt(
+            "expenses last month", ["account", "total"], [("Rent", 5.0)], period="Nov 2026"
+        )
+        self.assertIn("Time period: Nov 2026.", prompt)
+        # absent by default (no period) — existing behavior unchanged
+        self.assertNotIn("Time period", build_summary_prompt("q", ["a"], [(1,)]))
+
 
 class TestMockSummarizer(unittest.TestCase):
     def test_deterministic(self):
         s = MockSummarizer()
         self.assertEqual(s.summarize("q", ["a"], [(1,), (2,)]), "2 row(s) for: q")
+
+    def test_accepts_period_arg(self):
+        s = MockSummarizer()
+        self.assertEqual(s.summarize("q", ["a"], [(1,)], period="Nov 2026"), "1 row(s) for: q")
 
 
 class FakeBlock:

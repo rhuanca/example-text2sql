@@ -48,12 +48,14 @@ Result carries a `QueryShape` (metrics/dimensions) for chart selection.
   YAML; no engine change needed.
 - `engine/semantic_sql.py` — the semantic-SQL front-end: parse the LLM's SQL over the
   virtual table, **validate** it against the model (the safety boundary), and normalize
-  it to a plan. Supports SELECT of metric/dimension columns, WHERE (+ the
-  `last_period(n, unit)` relative window), GROUP BY, HAVING, ORDER BY, LIMIT, CASE
-  pivots (→ a `Comparison`), and window functions (→ outer-wrapped SQL + a
+  it to a plan. Supports SELECT of metric/dimension columns, WHERE (+ the relative-time
+  macros `last_period(n, unit)` and `period_to_date(unit)`), GROUP BY, HAVING, ORDER BY,
+  LIMIT, CASE pivots (→ a `Comparison`), and window functions (→ outer-wrapped SQL + a
   `QueryShape`). `compile_semantic_sql` is the engine's single entry point.
 - `engine/ir.py` — the `SemanticQuery` dataclass (the internal normalized form). `time`
-  is a data-anchored relative window (`last`/`unit`/`anchor`); `having` filters metrics.
+  is a calendar-anchored `TimeWindow` — `kind="trailing"` is the last N *complete* `unit`s up
+  to today (`last_period`); `kind="to_date"` is the current `unit` so far, YTD/MTD/QTD
+  (`period_to_date`). Both two-sided, wall-clock, resolved per dialect; `having` filters metrics.
 - `engine/compiler.py` — pure `compile(ir, model, dialect) -> (sql, params)`. Two paths:
   **single base table** (GROUP BY + INNER JOINs to dim tables), and **multi-base**
   (metrics from 2+ fact tables, e.g. sales + budget) which aggregates each base table

@@ -26,6 +26,14 @@ RULES = [
             "dimensions": ["store_id"],
         },
     ),
+    (
+        "past month",
+        {
+            "metrics": ["total_net_sales"],
+            "dimensions": ["market"],
+            "time": {"field": "date", "last": 1, "unit": "month"},
+        },
+    ),
 ]
 
 
@@ -72,6 +80,21 @@ class TestEngineE2E(EngineCase):
         result = engine.ask("Show budget vs actual by store")
         self.assertIn("sales_goal", result.columns)
         self.assertEqual(len(result.rows), len(DIM_STORE))
+
+    def test_resolves_relative_window_period(self):
+        # a plan with a last_period window gets its concrete bucket(s) resolved onto
+        # the Result (single-unit window -> start == end), so the UI can show the month.
+        engine = self.make_engine(RulePlanner(RULES))
+        result = engine.ask("sales for the past month")
+        self.assertIsNotNone(result.period_start)
+        self.assertEqual(result.period_start, result.period_end)   # one month bucket
+        self.assertRegex(result.period_start, r"^\d{4}-\d{2}-01$")  # date_trunc('month')
+
+    def test_no_window_leaves_period_none(self):
+        engine = self.make_engine(RulePlanner(RULES))
+        result = engine.ask("Show budget vs actual by store")
+        self.assertIsNone(result.period_start)
+        self.assertIsNone(result.period_end)
 
     def test_ask_accepts_thread_id(self):
         # thread_id is LangSmith metadata; passing it must not affect the answer,

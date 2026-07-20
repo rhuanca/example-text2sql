@@ -197,6 +197,13 @@ class TestComparisonTimeWindow(CompareCase):
         self.assertEqual((back.time.field, back.time.last, back.time.unit),
                          ("week_start", 6, "week"))
 
+    def test_to_date_window_round_trips_through_to_dict(self):
+        plan, _ = self._run(
+            self.PIVOT.format(where="WHERE week_start >= period_to_date('year')"))
+        back = Comparison.from_dict(plan.to_dict())
+        self.assertEqual((back.time.field, back.time.unit, back.time.kind),
+                         ("week_start", "year", "to_date"))
+
     def test_having_or_limit_on_a_pivot_fails_loud(self):
         # clauses a Comparison can't represent must raise (repair loop), not vanish.
         with self.assertRaises(SemanticSqlError):

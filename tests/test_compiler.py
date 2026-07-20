@@ -1,8 +1,8 @@
 import unittest
 
-from text2sql.engine.compiler import CompileError, compile
+from text2sql.engine.compiler import CompileError, compile, resolve_window_sql
 from text2sql.engine.dialects.sqlite import SqliteDialect
-from text2sql.engine.ir import SemanticQuery
+from text2sql.engine.ir import SemanticQuery, TimeWindow
 from tests.util import load_sales_model
 
 
@@ -13,6 +13,37 @@ class CompilerCase(unittest.TestCase):
 
     def c(self, ir_dict):
         return compile(SemanticQuery.from_dict(ir_dict), self.model, self.d)
+
+
+class TestResolveWindow(CompilerCase):
+    def test_month_window_start_equals_end_for_single_bucket(self):
+        # calendar-anchored, wall-clock (no data MAX). A single-month window resolves
+        # to one bucket: period_start == period_end (the previous complete month).
+        sql = resolve_window_sql(TimeWindow(field="date", last=1, unit="month"), self.d)
+        self.assertNotIn("MAX(", sql)
+        self.assertIn("start of month", sql)                  # date_trunc('month')
+        # single-bucket window: period_start and period_end are the SAME expression
+        expr = "date(date('now', 'start of month'), '-1 months')"
+        self.assertEqual(sql.count(expr), 2)
+
+    def test_multi_month_window_spans_start_to_end(self):
+        sql = resolve_window_sql(TimeWindow(field="date", last=6, unit="month"), self.d)
+        self.assertIn("'-6 months'", sql)   # first bucket = now - 6 months
+        self.assertIn("'-1 months'", sql)   # last bucket = now - 1 month
+
+    def test_to_date_window_is_start_of_period_through_today(self):
+        # calendar-to-date (YTD): from the start of the current year to today, inclusive
+        sql, _ = self.c({"metrics": ["total_net_sales"], "dimensions": [],
+                         "time": {"field": "date", "unit": "year", "kind": "to_date"}})
+        self.assertIn("date('now', 'start of year')", sql)   # start of period
+        self.assertIn("<= date('now')", sql)                 # through today
+        self.assertNotIn("MAX(", sql)
+
+    def test_resolve_to_date_spans_period_start_to_current_month(self):
+        sql = resolve_window_sql(
+            TimeWindow(field="date", unit="year", kind="to_date"), self.d)
+        self.assertIn("date('now', 'start of year')", sql)   # period_start
+        self.assertIn("date('now', 'start of month')", sql)  # period_end (current month)
 
 
 class TestSingleTable(CompilerCase):
@@ -87,9 +118,11 @@ class TestSingleTable(CompilerCase):
                 "time": {"field": "date", "last": 42, "unit": "day"},
             }
         )
-        # window is anchored to the latest date in the data, bounded, not wall-clock.
-        # "last 42 days" = anchor - 41 days, so it spans exactly 42 day-buckets.
-        self.assertIn("date((SELECT MAX(\"date\") FROM \"fact_sales\"), '-41 days')", sql)
+        # calendar-anchored, two-sided wall-clock window (no data MAX): the last 42
+        # complete days up to today -> `>= date('now') - 42 days AND < date('now')`.
+        self.assertNotIn("MAX(", sql)
+        self.assertIn("date(date('now'), '-42 days')", sql)
+        self.assertIn('"fact_sales"."date" <', sql)
         self.assertIn('"fact_sales"."date" >=', sql)
 
     def test_order_and_limit(self):
