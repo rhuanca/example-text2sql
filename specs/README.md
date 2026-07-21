@@ -68,3 +68,7 @@ Status: Accepted   ·   Date: YYYY-MM-DD
 | 0003 | Local-first observability (traces.db); LangSmith optional |
 | 0004 | Front-end direction: Streamlit now → Next.js + FastAPI later |
 | 0005 | Evals are the regression contract (don't edit to pass) |
+
+### Backlog
+- [improvements.md](improvements.md) — candidate features (not yet specs), mapped from Google Cloud's
+  text-to-SQL techniques article; promote one to a spec when chosen.
